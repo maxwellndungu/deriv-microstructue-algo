@@ -899,23 +899,28 @@ def get_ui_state() -> dict:
 # ---------------------------------------------------------------------------
 async def deriv_feed():
     global deriv_ws_ref
+    print(f"[DERIV_FEED] Starting... URL={DERIV_WS_URL}")
     while True:
         try:
+            print(f"[DERIV_FEED] Connecting to Deriv WebSocket...")
             async with websockets.connect(DERIV_WS_URL) as ws:
                 state["connected"] = True
                 deriv_ws_ref = ws
+                print(f"[DERIV_FEED] Connected!")
 
                 # Authorize
+                print(f"[DERIV_FEED] Authorizing with token...")
                 await ws.send(json.dumps({"authorize": DERIV_TOKEN}))
                 auth_resp = await ws.recv()
                 auth_data = json.loads(auth_resp)
                 if "error" in auth_data:
-                    print(f"Auth error: {auth_data['error']['message']}")
+                    print(f"[DERIV_FEED] Auth error: {auth_data['error']['message']}")
                     state["connected"] = False
                     deriv_ws_ref = None
                     await asyncio.sleep(5)
                     continue
 
+                print(f"[DERIV_FEED] Auth successful! Subscribing to {SYMBOL}...")
                 # Subscribe to ticks
                 await ws.send(json.dumps({"ticks": SYMBOL, "subscribe": 1}))
 
@@ -941,7 +946,9 @@ async def deriv_feed():
                         handle_proposal_open_contract(data)
 
         except Exception as e:
-            print(f"Deriv WS error: {e}")
+            print(f"[DERIV_FEED] Connection error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             state["connected"] = False
             deriv_ws_ref = None
             # If reconnected mid-candle, discard partial
@@ -951,6 +958,7 @@ async def deriv_feed():
                 state["synced"] = False
                 state["completed_minis_in_cluster"] = []
                 state["ticks_in_current_cluster"] = 0
+            print(f"[DERIV_FEED] Retrying in 3 seconds...")
             await asyncio.sleep(3)
 
 # ---------------------------------------------------------------------------
@@ -976,11 +984,16 @@ async def broadcast_loop():
 @asynccontextmanager
 async def lifespan(application):
     global buy_response_queue
+    print("[APP] Starting lifespan event...")
     buy_response_queue = asyncio.Queue()
     load_trades_from_disk()
+    print("[APP] Creating deriv_feed task...")
     asyncio.create_task(deriv_feed())
+    print("[APP] Creating broadcast_loop task...")
     asyncio.create_task(broadcast_loop())
+    print("[APP] Startup complete!")
     yield
+    print("[APP] Shutdown...")
 
 
 app = FastAPI(lifespan=lifespan)
