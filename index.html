@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digit Microstructure — 1HZ10V</title>
+<style>
+:root {
+  --bg:#0a0e14; --s1:#131820; --s2:#1a2030; --s3:#212a3a;
+  --brd:#2a3040; --brd2:#354055;
+  --t:#e2e8f0; --td:#6b7a90; --t2:#8fa0b8;
+  --acc:#58a6ff; --grn:#3fb950; --red:#f85149;
+  --yel:#d29922; --pur:#bc8cff; --ora:#e09030; --gold:#f0c040;
+  --e1c:#22d3ee; --e2c:#a78bfa; --e3c:#34d399; --cvc:#f0c040;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'SF Mono','Cascadia Code','Fira Code',monospace;background:var(--bg);color:var(--t);font-size:10px;line-height:1.35}
+
+/* STATUS BAR */
+.bar{position:sticky;top:0;z-index:100;background:var(--s1);border-bottom:1px solid var(--brd);padding:4px 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.si{display:flex;align-items:center;gap:3px}
+.sl{color:var(--td);font-size:8px;text-transform:uppercase;letter-spacing:.5px}
+.sv{font-weight:600;font-size:11px;font-variant-numeric:tabular-nums}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.dg{background:var(--grn);box-shadow:0 0 4px var(--grn)}
+.dr{background:var(--red);box-shadow:0 0 4px var(--red)}
+.dy{background:var(--yel);box-shadow:0 0 4px var(--yel);animation:p 1.5s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+.dhi{background:var(--acc);color:var(--bg);padding:0 5px;border-radius:3px;font-weight:700;font-size:12px}
+.pri{color:var(--grn);font-size:12px;font-weight:700}
+.sep{width:1px;height:16px;background:var(--brd);margin:0 2px}
+
+/* SYNC */
+.syn{display:flex;flex-direction:column;align-items:center;padding:50px 20px;text-align:center}
+.syn h2{color:var(--yel);font-size:15px;margin-bottom:6px}
+.syn p{color:var(--td);font-size:11px}
+.spi{width:28px;height:28px;border:2px solid var(--brd);border-top-color:var(--yel);border-radius:50%;animation:sp 1s linear infinite;margin-bottom:12px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* MAIN */
+.mc{padding:8px;max-width:1600px;margin:0 auto}
+
+/* CLUSTER */
+.cc{background:var(--s1);border:1px solid var(--brd);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.cc.act{border:1px solid var(--acc);box-shadow:0 0 10px rgba(88,166,255,.08)}
+.ch{padding:5px 8px;border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--s2)}
+.ct{font-size:12px;font-weight:700;color:var(--acc)}
+.cm{display:flex;gap:6px;flex-wrap:wrap}
+.chp{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:9px;border:1px solid var(--brd)}
+.chp .l{color:var(--td)} .chp .v{font-weight:600}
+.lv{background:var(--red);color:#fff;padding:0 7px;border-radius:6px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;animation:p 1.5s infinite}
+
+/* PROGRESS */
+.prg{padding:2px 8px;font-size:9px;color:var(--td)}
+.pb{background:var(--bg);border-radius:2px;height:3px;overflow:hidden;margin-top:2px}
+.pf{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--acc),var(--pur));transition:width .3s}
+
+/* MINI CANDLE — Grid layout */
+.minis{padding:4px}
+.mr{background:var(--bg);border:1px solid var(--brd);border-radius:5px;margin-bottom:4px;overflow:hidden}
+.mr.bld{border-color:var(--yel)}
+.mr:last-child{margin-bottom:0}
+
+/* Mini header */
+.mhd{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:var(--s2);border-bottom:1px solid var(--brd);gap:6px;flex-wrap:wrap}
+.mlab{font-weight:700;color:var(--pur);font-size:10px}
+.mst{display:flex;gap:6px;font-size:9px;flex-wrap:wrap}
+.mst .k{color:var(--td)} .mst .v{font-weight:600}
+
+/* Mini body — two column grid */
+.mbody{display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.mcol{padding:5px 8px;font-size:9px}
+.mcol:first-child{border-right:1px solid var(--brd)}
+
+/* Section labels */
+.sec{font-size:8px;color:var(--td);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;font-weight:600}
+.sec:first-child{margin-top:0}
+
+/* Digit pills */
+.dp{display:flex;gap:2px;flex-wrap:wrap;margin:2px 0}
+.dp span{width:18px;height:16px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;font-weight:700;font-size:9px}
+.dp .t{background:rgba(63,185,80,.18);color:var(--grn);border:1px solid rgba(63,185,80,.35)}
+.dp .u{background:rgba(248,81,73,.12);color:var(--red);border:1px solid rgba(248,81,73,.25)}
+
+/* Digit dist bars */
+.dd{display:flex;gap:1px;align-items:flex-end;height:22px;margin-top:2px}
+.dw{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end}
+.dbar{width:100%;max-width:18px;border-radius:2px 2px 0 0;min-height:1px}
+.dlb{font-size:7px;color:var(--td);margin-top:1px}
+
+/* Prices — scrollable box */
+.pbox{max-height:48px;overflow-y:auto;font-size:8px;color:var(--td);line-height:1.25;word-break:break-all;margin-top:2px;padding:2px 3px;background:var(--s1);border-radius:3px;border:1px solid var(--brd)}
+.pbox::-webkit-scrollbar{width:3px}
+.pbox::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:2px}
+.pbox span{color:var(--t2);margin-right:1px}
+.pbox .lbl{color:var(--td);font-weight:600;font-size:7px;text-transform:uppercase}
+
+/* ENGINE SIGNAL BOX */
+.ebox{padding:4px 6px;border-radius:4px;margin-top:3px}
+.ebox.e1{background:rgba(34,211,238,.04);border:1px solid rgba(34,211,238,.15)}
+.ebox.e2{background:rgba(167,139,250,.04);border:1px solid rgba(167,139,250,.15)}
+.ebox.e3{background:rgba(52,211,153,.04);border:1px solid rgba(52,211,153,.15)}
+.elab{font-size:8px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-bottom:2px}
+.elab.l1{color:var(--e1c)} .elab.l2{color:var(--e2c)} .elab.l3{color:var(--e3c)}
+
+/* CONVERGENCE */
+.cvbox{margin-top:4px;padding:5px 7px;border-radius:4px;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.35)}
+.cvlab{font-size:8px;color:var(--cvc);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:3px}
+.cvrow{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:9px}
+.cvbadge{padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;background:rgba(240,192,64,.15);color:var(--gold);border:1px solid rgba(240,192,64,.4);text-transform:uppercase;letter-spacing:.2px}
+.cvstr{display:flex;gap:2px;align-items:center;font-size:8px;color:var(--td)}
+.cvstr b{color:var(--t);font-weight:700}
+.cvbar{width:100px;height:4px;background:var(--brd);border-radius:2px;overflow:hidden}
+.cvfill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--gold),var(--ora))}
+.cvpct{font-weight:700;font-size:10px;color:var(--gold);min-width:28px;text-align:right}
+.sig{display:flex;align-items:center;gap:4px;padding:1px 0;font-size:9px}
+.badge{padding:0 4px;border-radius:2px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.2px;line-height:16px}
+.b-d{background:rgba(248,81,73,.18);color:var(--red);border:1px solid rgba(248,81,73,.35)}
+.b-m{background:rgba(63,185,80,.18);color:var(--grn);border:1px solid rgba(63,185,80,.35)}
+.b-e{background:rgba(88,166,255,.18);color:var(--acc);border:1px solid rgba(88,166,255,.35)}
+.b-o{background:rgba(188,140,255,.18);color:var(--pur);border:1px solid rgba(188,140,255,.35)}
+.bw{width:80px;height:3px;background:var(--brd);border-radius:2px;overflow:hidden;flex-shrink:0}
+.bf{height:100%;border-radius:2px}
+.bhi{background:var(--grn)} .bmd{background:var(--yel)} .blo{background:var(--red)}
+.stx{color:var(--td);font-size:8px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spc{font-weight:700;font-size:9px;min-width:24px;text-align:right}
+
+/* CLUSTER SUMMARY */
+.csum{padding:6px 8px;background:var(--s2);border-top:1px solid var(--brd)}
+.cslab{font-size:9px;color:var(--td);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:4px}
+.sg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:6px}
+.ss{background:var(--bg);padding:3px 5px;border-radius:3px;border:1px solid var(--brd)}
+.ss .k{font-size:7px;color:var(--td);text-transform:uppercase;letter-spacing:.2px}
+.ss .v{font-size:13px;font-weight:700}
+
+/* Freq table */
+.ft{display:flex;gap:2px}
+.fc{background:var(--bg);border:1px solid var(--brd);border-radius:3px;padding:2px 3px;text-align:center;flex:1}
+.fc .fd{font-size:11px;font-weight:700;color:var(--acc)}
+.fc .fn{font-size:9px;font-weight:600}
+.fc .fp{font-size:7px;color:var(--td)}
+.fc.mg{border-color:var(--grn);background:rgba(63,185,80,.06)}
+.fc.lg{border-color:var(--red);background:rgba(248,81,73,.06)}
+
+/* Engine cluster summaries — 3 columns */
+.ecsums{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:6px}
+.ecs{padding:4px 5px;border-radius:4px}
+.ecs.ec1{background:rgba(34,211,238,.03);border:1px solid rgba(34,211,238,.1)}
+.ecs.ec2{background:rgba(167,139,250,.03);border:1px solid rgba(167,139,250,.1)}
+.ecs.ec3{background:rgba(52,211,153,.03);border:1px solid rgba(52,211,153,.1)}
+.ecst{font-size:8px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-bottom:3px}
+.ecst.t1{color:var(--e1c)} .ecst.t2{color:var(--e2c)} .ecst.t3{color:var(--e3c)}
+
+/* Cluster convergence */
+.ccv{margin-top:6px;padding:5px 7px;border-radius:4px;background:rgba(240,192,64,.05);border:1px solid rgba(240,192,64,.25)}
+.ccvt{font-size:9px;color:var(--cvc);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:3px}
+.ccvr{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:9px;flex-wrap:wrap}
+.ccvn{color:var(--td);font-size:8px}
+.ecr{display:flex;align-items:center;gap:4px;padding:1px 0;font-size:9px;flex-wrap:wrap}
+.hc{color:var(--gold);font-weight:700;font-size:8px}
+.mod{color:var(--yel);font-weight:600;font-size:8px}
+
+.stitle{font-size:9px;color:var(--td);text-transform:uppercase;letter-spacing:.8px;margin:8px 0 4px}
+
+/* RETEST MONITOR */
+.rtm{background:var(--s1);border:1px solid var(--brd);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.rtm-h{padding:5px 8px;background:var(--s2);border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rtm-t{font-size:11px;font-weight:700;color:var(--ora)}
+.rtm-stats{display:flex;gap:10px;font-size:9px}
+.rtm-stats .k{color:var(--td)} .rtm-stats .v{font-weight:700}
+.rtm-stats .va{color:var(--grn)} .rtm-stats .vt{color:var(--ora)}
+.rtm-body{padding:4px 6px}
+.rtm-empty{color:var(--td);font-size:9px;padding:6px 0;text-align:center}
+.rtm-row{display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:9px;border-radius:3px;margin-bottom:2px;border:1px solid transparent}
+.rtm-row:last-child{margin-bottom:0}
+.rtm-row.rt-active{background:rgba(63,185,80,.06);border-color:rgba(63,185,80,.25)}
+.rtm-row.rt-conv{background:rgba(240,192,64,.06);border-color:rgba(240,192,64,.3)}
+.rtm-time{color:var(--td);min-width:55px;font-variant-numeric:tabular-nums}
+.rtm-ref{font-weight:700;color:var(--pur);min-width:42px}
+.rtm-range{color:var(--td);min-width:90px}
+.rtm-dig{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;font-weight:700;font-size:10px;background:var(--s3);border:1px solid var(--brd)}
+.rtm-dig.gold{background:rgba(240,192,64,.15);color:var(--gold);border-color:rgba(240,192,64,.4)}
+.rtm-dig.e2h{background:rgba(167,139,250,.12);color:var(--e2c);border-color:rgba(167,139,250,.35)}
+.rtm-tag{padding:0 4px;border-radius:2px;font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;line-height:14px}
+.rtm-tag.cv{background:rgba(240,192,64,.15);color:var(--gold);border:1px solid rgba(240,192,64,.35)}
+.rtm-tag.e2t{background:rgba(167,139,250,.12);color:var(--e2c);border:1px solid rgba(167,139,250,.3)}
+.rtm-act{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px;padding-top:4px;border-top:1px solid var(--brd)}
+.rtm-act-chip{padding:1px 5px;border-radius:3px;font-size:8px;font-weight:600;background:rgba(63,185,80,.1);color:var(--grn);border:1px solid rgba(63,185,80,.3)}
+
+/* TRADE LOG */
+.tlp{background:var(--s1);border:1px solid var(--brd);border-radius:6px;overflow:hidden;margin-top:6px}
+.tlp-h{padding:5px 8px;background:var(--s2);border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.tlp-t{font-size:11px;font-weight:700;color:var(--acc)}
+.tlp-stats{display:flex;gap:8px;font-size:9px;align-items:center}
+.tlp-stats .k{color:var(--td)} .tlp-stats .v{font-weight:700}
+.tlp-stats .vw{color:var(--grn)} .tlp-stats .vl{color:var(--red)} .tlp-stats .vp{font-weight:700}
+.tlp-body{padding:4px 6px}
+.tlp-empty{color:var(--td);font-size:9px;padding:6px 0;text-align:center}
+.tl-row{display:flex;align-items:center;gap:5px;padding:3px 4px;font-size:9px;border-radius:3px;margin-bottom:2px;border:1px solid transparent}
+.tl-row:last-child{margin-bottom:0}
+.tl-row.tw{background:rgba(63,185,80,.05);border-color:rgba(63,185,80,.2)}
+.tl-row.tls{background:rgba(248,81,73,.05);border-color:rgba(248,81,73,.2)}
+.tl-row.tp{background:rgba(88,166,255,.03);border-color:rgba(88,166,255,.15)}
+.tl-time{color:var(--td);min-width:55px;font-variant-numeric:tabular-nums}
+.tl-ref{font-weight:700;color:var(--pur);min-width:42px}
+.tl-ct{padding:0 4px;border-radius:2px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.2px;line-height:16px}
+.tl-dig{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;font-weight:700;font-size:9px;background:var(--s3);border:1px solid var(--brd)}
+.tl-out{padding:0 4px;border-radius:2px;font-size:8px;font-weight:700;text-transform:uppercase;line-height:14px}
+.tl-out.ow{background:rgba(63,185,80,.18);color:var(--grn);border:1px solid rgba(63,185,80,.35)}
+.tl-out.ol{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+.tl-out.op{background:rgba(88,166,255,.12);color:var(--acc);border:1px solid rgba(88,166,255,.3)}
+.tl-out.oe{background:rgba(210,153,34,.12);color:var(--yel);border:1px solid rgba(210,153,34,.3)}
+.tl-pnl{font-weight:700;min-width:40px;text-align:right;font-size:9px}
+.tl-pnl.pos{color:var(--grn)} .tl-pnl.neg{color:var(--red)} .tl-pnl.zer{color:var(--td)}
+.tl-str{color:var(--td);font-size:8px}
+.tbtn{padding:2px 8px;border-radius:4px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;cursor:pointer;border:1px solid;transition:all .15s}
+.tbtn.on{background:rgba(63,185,80,.15);color:var(--grn);border-color:rgba(63,185,80,.4)}
+.tbtn.off{background:rgba(248,81,73,.12);color:var(--red);border-color:rgba(248,81,73,.35)}
+</style>
+</head>
+<body>
+
+<div class="bar" id="statusBar">
+  <div class="si"><span class="dot dr" id="cD"></span><span class="sl">Feed</span><span class="sv" id="cS">Off</span></div>
+  <span class="sep"></span>
+  <div class="si"><span class="sl">Price</span><span class="pri" id="pD">—</span></div>
+  <div class="si"><span class="sl">Digit</span><span class="dhi" id="dD">—</span></div>
+  <span class="sep"></span>
+  <div class="si"><span class="sl">Cluster</span><span class="sv" id="clD">—</span></div>
+  <div class="si"><span class="sl">Mini</span><span class="sv" id="mD">—</span></div>
+  <div class="si"><span class="sl">Ticks</span><span class="sv" id="tD">0</span></div>
+  <span class="sep"></span>
+  <div class="si"><span class="sl">Mini</span><span class="sv" id="mnC">—</span></div>
+  <div class="si"><span class="sl">Cluster</span><span class="sv" id="clC">—</span></div>
+</div>
+
+<div id="rtPanel"></div>
+<div id="trPanel"></div>
+<div class="mc" id="mc"></div>
+
+<script>
+const mc=document.getElementById('mc');
+const rtP=document.getElementById('rtPanel');
+const trP=document.getElementById('trPanel');
+let ws=null;
+
+function connect(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage=e=>render(JSON.parse(e.data));
+  ws.onclose=()=>setTimeout(connect,2000);
+  ws.onerror=()=>ws.close();
+}
+
+function eT(ep){return ep?new Date(ep*1000).toLocaleTimeString('en-GB',{hour12:false}):'—'}
+function fP(p){return p==null?'—':Number(p).toFixed(2)}
+function pills(d,c){return d.map(x=>`<span class="${c}">${x}</span>`).join('')}
+
+function dist(freq){
+  if(!freq)return '';
+  const mx=Math.max(...Object.values(freq),1);
+  let h='<div class="dd">';
+  for(let d=0;d<10;d++){const c=freq[d]||0,ht=Math.max((c/mx)*18,1),hu=210+d*15;
+    h+=`<div class="dw"><div class="dbar" style="height:${ht}px;background:hsl(${hu},70%,60%)"></div><span class="dlb">${d}:${c}</span></div>`}
+  return h+'</div>';
+}
+
+function bc(ct){return ct==='DIGITDIFF'?'b-d':ct==='DIGITMATCH'?'b-m':(ct==='DIGITEVEN'||ct==='DIGITODD')?'b-e':'b-o'}
+function brc(s){return s>.6?'bhi':s>=.4?'bmd':'blo'}
+function sht(ct){return ct.replace('DIGIT','')}
+
+function renderSigs(signals,label,cls,lcls){
+  if(!signals||!signals.length)return '';
+  let h=`<div class="ebox ${cls}"><div class="elab ${lcls}">${label}</div>`;
+  for(const s of signals){const p=Math.round(s.signal_strength*100);
+    h+=`<div class="sig"><span class="badge ${bc(s.contract_type)}">${sht(s.contract_type)}</span>${s.barrier!=null?`<span style="color:var(--td)">b:${s.barrier}</span>`:'<span style="color:var(--td)">—</span>'}<span class="stx">${s.signal}</span><div class="bw"><div class="bf ${brc(s.signal_strength)}" style="width:${p}%"></div></div><span class="spc">${p}%</span></div>`}
+  return h+'</div>';
+}
+
+function renderMini(m,partial){
+  const tr=partial?`${eT(m.ticks?.[0]?.epoch)} — ...`:`${eT(m.epoch_start)} — ${eT(m.epoch_end)}`;
+  // Header stats
+  let st='';
+  if(!partial){
+    st=`<span class="k">H </span><span class="v">${fP(m.high)}</span>
+    <span class="k"> L </span><span class="v">${fP(m.low)}</span>
+    <span class="k"> R </span><span class="v">${fP(m.range)}</span>
+    <span class="k"> T:</span><span class="v">${m.tapped_prices?.length||0}</span>
+    <span class="k"> U:</span><span class="v">${m.untapped_prices?.length||0}</span>`;
+  } else {
+    st=`<span style="color:var(--yel)">${m.tick_count}/10</span>
+    <span class="k"> H </span><span class="v">${fP(m.high)}</span>
+    <span class="k"> L </span><span class="v">${fP(m.low)}</span>`;
+  }
+
+  const prog=partial?`<div style="padding:2px 8px"><div class="pb"><div class="pf" style="width:${(m.tick_count/10)*100}%"></div></div></div>`:'';
+
+  if(partial){
+    let digs='';
+    if(m.ticks){const ds=[...new Set(m.ticks.map(t=>t.digit))].sort((a,b)=>a-b);
+      digs=`<div class="sec">Digits so far</div><div class="dp">${pills(ds,'t')}</div>`}
+    return `<div class="mr bld"><div class="mhd"><span class="mlab">M${m.mini_id} <span style="color:var(--yel)">(building)</span></span><span style="color:var(--td);font-size:9px">${tr}</span><div class="mst">${st}</div></div>${prog}<div style="padding:4px 8px">${digs}</div></div>`;
+  }
+
+  // LEFT COLUMN: digits + prices
+  const ut=[...new Set(m.tapped_digits||[])].sort((a,b)=>a-b);
+  const uu=[...new Set(m.untapped_digits||[])].sort((a,b)=>a-b);
+  let left=`<div class="sec">Tapped digits</div><div class="dp">${pills(ut,'t')}</div>`;
+  left+=`<div class="sec">Untapped digits (${m.untapped_digits?.length||0})</div><div class="dp">${pills(uu,'u')}</div>`;
+  left+=dist(m.untapped_digit_freq||m.digit_freq);
+  // Prices in scrollable boxes
+  if(m.tapped_prices){
+    left+=`<div class="sec">Tapped prices</div><div class="pbox"><span class="lbl"></span>${m.tapped_prices.map(p=>`<span>${p}</span>`).join(' ')}</div>`;
+  }
+  if(m.untapped_prices&&m.untapped_prices.length){
+    left+=`<div class="sec">Untapped prices</div><div class="pbox"><span class="lbl"></span>${m.untapped_prices.map(p=>`<span>${p}</span>`).join(' ')}</div>`;
+  }
+
+  // RIGHT COLUMN: Engine 1 + Engine 2 + Engine 3 + Convergence
+  let right=renderSigs(m.e1_signals,'E1 — Tapped','e1','l1');
+  right+=renderSigs(m.e2_signals,'E2 — Untapped','e2','l2');
+  right+=renderSigs(m.e3_signals,'E3 — Full Range','e3','l3');
+  right+=renderConv(m.convergence);
+
+  return `<div class="mr"><div class="mhd"><span class="mlab">M${m.mini_id}</span><span style="color:var(--td);font-size:9px">${tr}</span><div class="mst">${st}</div></div><div class="mbody"><div class="mcol">${left}</div><div class="mcol">${right}</div></div></div>`;
+}
+
+function renderConv(conv){
+  if(!conv||!conv.length)return '';
+  let h='<div class="cvbox"><div class="cvlab">⚡ Convergence — All 3 Engines Agree</div>';
+  for(const c of conv){
+    const p=Math.round(c.avg_strength*100);
+    h+=`<div class="cvrow"><span class="cvbadge">${sht(c.contract_type)}</span>${c.barrier!=null?`<span style="color:var(--td)">b:${c.barrier}</span>`:'<span style="color:var(--td)">—</span>'}<div class="cvstr">E1:<b>${Math.round(c.e1_strength*100)}%</b> E2:<b>${Math.round(c.e2_strength*100)}%</b> E3:<b>${Math.round(c.e3_strength*100)}%</b></div><div class="cvbar"><div class="cvfill" style="width:${p}%"></div></div><span class="cvpct">${p}%</span></div>`}
+  return h+'</div>';
+}
+
+function buildEngClusterSigs(signals,title,cls,tcls){
+  if(!signals||!signals.length)return '';
+  const sm={};
+  for(const s of signals){const k=s.contract_type+(s.barrier||'');
+    if(!sm[k])sm[k]={type:s.contract_type,barrier:s.barrier,count:0,maxS:0,sumS:0};
+    sm[k].count++;sm[k].sumS+=s.signal_strength;
+    if(s.signal_strength>sm[k].maxS)sm[k].maxS=s.signal_strength}
+  const ents=Object.values(sm).sort((a,b)=>b.maxS-a.maxS);
+  let h=`<div class="ecs ${cls}"><div class="ecst ${tcls}">${title}</div>`;
+  for(const e of ents){
+    const avg=e.sumS/e.count;
+    const lab=e.count>=3&&avg>=.6?`<span class="hc">★ HIGH</span>`:(e.count>=3&&avg>=.4?`<span class="mod">● MOD</span>`:'');
+    const pct=Math.round(e.maxS*100);
+    h+=`<div class="ecr"><span class="badge ${bc(e.type)}">${sht(e.type)}</span>${e.barrier!=null?`<span style="color:var(--td)">b:${e.barrier}</span>`:'<span style="color:var(--td)">—</span>'}<span style="color:var(--td)">${e.count}/6</span><div class="bw"><div class="bf ${brc(e.maxS)}" style="width:${pct}%"></div></div><span class="spc">${pct}%</span>${lab}</div>`}
+  return h+'</div>';
+}
+
+function renderCSum(cl){
+  const tot=Object.values(cl.digit_freq).reduce((a,b)=>a+b,0)||1;
+  let fh='<div class="ft">';
+  for(let d=0;d<10;d++){const c=cl.digit_freq[d]||0,p=((c/tot)*100).toFixed(1);
+    const cs=d===cl.most_digit?'mg':(d===cl.least_digit?'lg':'');
+    fh+=`<div class="fc ${cs}"><div class="fd">${d}</div><div class="fn">${c}</div><div class="fp">${p}%</div></div>`}
+  fh+='</div>';
+
+  const e1cs=buildEngClusterSigs(cl.e1_signals,'E1 Cluster','ec1','t1');
+  const e2cs=buildEngClusterSigs(cl.e2_signals,'E2 Cluster','ec2','t2');
+  const e3cs=buildEngClusterSigs(cl.e3_signals,'E3 Cluster','ec3','t3');
+  const ecsHtml=(e1cs||e2cs||e3cs)?`<div class="ecsums">${e1cs}${e2cs}${e3cs}</div>`:'';
+
+  // Cluster-level convergence summary
+  let ccvHtml='';
+  if(cl.convergence&&cl.convergence.length){
+    const cm={};
+    for(const c of cl.convergence){const k=c.contract_type+'|'+(c.barrier||'');
+      if(!cm[k])cm[k]={type:c.contract_type,barrier:c.barrier,count:0,sumAvg:0,maxAvg:0};
+      cm[k].count++;cm[k].sumAvg+=c.avg_strength;
+      if(c.avg_strength>cm[k].maxAvg)cm[k].maxAvg=c.avg_strength}
+    const ce=Object.values(cm).sort((a,b)=>b.maxAvg-a.maxAvg);
+    ccvHtml='<div class="ccv"><div class="ccvt">⚡ Cluster Convergence</div>';
+    for(const e of ce){const p=Math.round(e.maxAvg*100);
+      ccvHtml+=`<div class="ccvr"><span class="cvbadge">${sht(e.type)}</span>${e.barrier!=null?`<span style="color:var(--td)">b:${e.barrier}</span>`:'<span style="color:var(--td)">—</span>'}<span class="ccvn">${e.count}/6 minis</span><div class="cvbar"><div class="cvfill" style="width:${p}%"></div></div><span class="cvpct">${p}%</span>${e.count>=3?'<span class="hc">★ HIGH</span>':''}</div>`}
+    ccvHtml+='</div>'}
+
+  return `<div class="csum"><div class="cslab">Cluster Summary</div>
+    <div class="sg">
+      <div class="ss"><div class="k">Most</div><div class="v" style="color:var(--grn)">${cl.most_digit}</div></div>
+      <div class="ss"><div class="k">Least</div><div class="v" style="color:var(--red)">${cl.least_digit}</div></div>
+      <div class="ss"><div class="k">Tapped</div><div class="v">${cl.tapped_count}</div></div>
+      <div class="ss"><div class="k">Untapped</div><div class="v">${cl.untapped_count}</div></div>
+      <div class="ss"><div class="k">Range</div><div class="v">${fP(cl.range)}</div></div>
+    </div>${fh}${ccvHtml}${ecsHtml}</div>`;
+}
+
+function renderCluster(cl,isActive){
+  const tr=isActive?`${eT(cl.epoch_start)} — ...`:`${eT(cl.epoch_start)} — ${eT(cl.epoch_end)}`;
+  const right=isActive?`<span class="lv">LIVE</span>`
+    :`<div class="cm"><span class="chp"><span class="l">H </span><span class="v">${fP(cl.high)}</span></span><span class="chp"><span class="l">L </span><span class="v">${fP(cl.low)}</span></span><span class="chp"><span class="l">R </span><span class="v">${fP(cl.range)}</span></span><span class="chp"><span class="l">T </span><span class="v">${cl.tick_count}</span></span></div>`;
+
+  let mh='';
+  if(cl.minis)mh=cl.minis.map(m=>renderMini(m,false)).join('');
+  if(isActive&&cl.partial_mini)mh+=renderMini(cl.partial_mini,true);
+
+  const prog=isActive?`<div class="prg">${cl.minis_completed}/6 minis · ${cl.ticks_in_cluster}/60 ticks<div class="pb"><div class="pf" style="width:${(cl.ticks_in_cluster/60)*100}%"></div></div></div>`:'';
+  const sum=(!isActive&&cl.digit_freq)?renderCSum(cl):'';
+
+  return `<div class="cc${isActive?' act':''}"><div class="ch"><div><span class="ct">C${cl.cluster_id}</span> <span style="color:var(--td);font-size:9px;margin-left:3px">${tr}</span></div>${right}</div>${prog}<div class="minis">${mh}</div>${sum}</div>`;
+}
+
+function render(d){
+  const dot=document.getElementById('cD'),st=document.getElementById('cS');
+  if(d.connected&&d.synced){dot.className='dot dg';st.textContent='Connected';st.style.color='var(--grn)'}
+  else if(d.connected&&d.sync_waiting){dot.className='dot dy';st.textContent='Syncing';st.style.color='var(--yel)'}
+  else{dot.className='dot dr';st.textContent='Off';st.style.color='var(--red)'}
+
+  document.getElementById('pD').textContent=d.current_price!=null?fP(d.current_price):'—';
+  document.getElementById('dD').textContent=d.current_digit!=null?d.current_digit:'—';
+  document.getElementById('clD').textContent=d.current_cluster_id||'—';
+  document.getElementById('mD').textContent=d.current_mini_id||'—';
+  document.getElementById('tD').textContent=d.session_ticks;
+  const tm=d.ticks_in_mini||0;
+  document.getElementById('mnC').textContent=d.synced?`${10-tm}s`:'—';
+  const tc=d.active_cluster?d.active_cluster.ticks_in_cluster:0;
+  document.getElementById('clC').textContent=d.synced?`${60-tc}s`:'—';
+
+  let h='';
+  if(d.sync_waiting&&!d.synced){
+    h=`<div class="syn"><div class="spi"></div><h2>Waiting for candle sync...</h2><p>${d.connected?'Connected. Waiting for epoch % 60 == 0.':'Connecting...'}</p>${d.last_epoch?`<p style="margin-top:6px;color:var(--td)">Epoch: ${d.last_epoch} (${d.last_epoch%60}s in)</p>`:''}</div>`;
+    mc.innerHTML=h;return}
+
+  // Retest monitor + trade log
+  renderRetest(d);
+  renderTrades(d);
+
+  if(d.active_cluster)h+=renderCluster(d.active_cluster,true);
+  if(d.clusters&&d.clusters.length){
+    h+=`<div class="stitle">Completed (${d.clusters.length})</div>`;
+    for(let i=d.clusters.length-1;i>=0;i--)h+=renderCluster(d.clusters[i],false)}
+  mc.innerHTML=h;
+}
+
+function toggleExec(){
+  fetch('/toggle_execution',{method:'POST'}).then(r=>r.json()).then(d=>{
+    console.log('Execution:',d.execution_enabled);
+  }).catch(e=>console.error('Toggle error:',e));
+}
+
+function renderTrades(d){
+  const trades=d.trades||[];
+  const ts=d.trade_stats||{total:0,wins:0,losses:0,pnl:0};
+  const on=d.execution_enabled;
+  const wr=ts.total>0?Math.round((ts.wins/ts.total)*100):0;
+  const pnlCls=ts.pnl>0?'pos':(ts.pnl<0?'neg':'zer');
+
+  let h=`<div style="padding:0 8px;max-width:1600px;margin:0 auto"><div class="tlp">`;
+  h+=`<div class="tlp-h"><div class="tlp-t">▶ Execution Engine</div><div class="tlp-stats">`;
+  h+=`<span class="tbtn ${on?'on':'off'}" onclick="toggleExec()">${on?'\u25cf LIVE':'\u25cb OFF'}</span>`;
+  h+=`<span class="k">Trades </span><span class="v">${ts.total}</span>`;
+  h+=`<span class="k">W </span><span class="v vw">${ts.wins}</span>`;
+  h+=`<span class="k">L </span><span class="v vl">${ts.losses}</span>`;
+  h+=`<span class="k">WR </span><span class="v">${wr}%</span>`;
+  h+=`<span class="k">P&L </span><span class="v vp ${pnlCls}">$${ts.pnl.toFixed(2)}</span>`;
+  h+=`<a href="/export/trades" class="tbtn on" style="text-decoration:none;color:var(--acc);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.1)" download>⤓ CSV</a>`;
+  h+=`</div></div><div class="tlp-body">`;
+
+  // Per-contract-type stats breakdown
+  if(trades.length>0){
+    const ctStats={};
+    for(const t of trades){
+      if(t.outcome!=='win'&&t.outcome!=='loss')continue;
+      const key=t.contract_type+(t.barrier!=null?` b:${t.barrier}`:'');
+      if(!ctStats[key])ctStats[key]={total:0,wins:0,pnl:0};
+      ctStats[key].total++;
+      if(t.outcome==='win')ctStats[key].wins++;
+      ctStats[key].pnl+=t.profit||0;
+    }
+    const cts=Object.entries(ctStats).sort((a,b)=>b[1].total-a[1].total);
+    if(cts.length>0){
+      h+=`<div style="padding:4px 0;border-bottom:1px solid var(--brd);margin-bottom:4px"><div style="font-size:8px;color:var(--td);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:3px">Contract Performance</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:3px">`;
+      for(const[ct,s]of cts){
+        const wr=Math.round((s.wins/s.total)*100);
+        const pCls=s.pnl>0?'pos':(s.pnl<0?'neg':'zer');
+        h+=`<div style="background:var(--s2);padding:3px 5px;border-radius:3px;border:1px solid var(--brd)"><div style="font-size:8px;font-weight:700;color:var(--t2);margin-bottom:1px">${ct}</div><div style="display:flex;gap:6px;font-size:8px"><span style="color:var(--td)">WR</span><span style="font-weight:700">${wr}%</span><span style="color:var(--td)">P&L</span><span class="${pCls}" style="font-weight:700">${s.pnl>=0?'+':''}$${s.pnl.toFixed(2)}</span></div></div>`;
+      }
+      h+=`</div></div>`;
+    }
+  }
+
+  if(!trades.length){
+    h+=`<div class="tlp-empty">${on?'Waiting for convergence retest signals…':'Execution disabled'}</div>`;
+  } else {
+    for(let i=trades.length-1;i>=0;i--){
+      const t=trades[i];
+      const rc=t.outcome==='win'?'tw':(t.outcome==='loss'?'tls':'tp');
+      const oc=t.outcome==='win'?'ow':(t.outcome==='loss'?'ol':(t.outcome==='pending'?'op':'oe'));
+      const pCls=t.profit>0?'pos':(t.profit<0?'neg':'zer');
+      h+=`<div class="tl-row ${rc}">`;
+      h+=`<span class="tl-time">${eT(t.epoch)}</span>`;
+      h+=`<span class="tl-ref">C${t.cluster_id}M${t.mini_id}</span>`;
+      h+=`<span class="tl-ct ${bc(t.contract_type)}">${sht(t.contract_type)}</span>`;
+      h+=t.barrier!=null?`<span style="color:var(--td)">b:${t.barrier}</span>`:'<span style="color:var(--td)">—</span>';
+      h+=`<span class="tl-dig">${t.entry_digit}</span>`;
+      h+=`<span class="tl-str">${Math.round(t.convergence_strength*100)}%</span>`;
+      h+=`<span class="tl-out ${oc}">${t.outcome.toUpperCase()}</span>`;
+      const ppct=t.payout_pct!=null?`<span style="color:var(--td);font-size:7px">${t.payout_pct>0?'+':''}${t.payout_pct}%</span>`:'';
+      h+=`<span class="tl-pnl ${pCls}">${t.profit>=0?'+':''}$${t.profit.toFixed(2)}</span>${ppct}`;
+      h+=`</div>`;
+    }
+  }
+  h+='</div></div></div>';
+  trP.innerHTML=h;
+}
+
+function renderRetest(d){
+  const evts=d.retest_events||[];
+  const acts=d.active_retests||[];
+  const tot=d.retest_total||0;
+
+  // Build active set for quick lookup
+  const actSet=new Set(acts.map(a=>`${a.cluster_id}-${a.mini_id}`));
+
+  let h=`<div class="rtm" style="margin:8px;max-width:1600px;margin:0 auto 0;padding:0 8px"><div style="background:var(--s1);border:1px solid var(--brd);border-radius:6px;overflow:hidden;margin-top:8px">`;
+  h+=`<div class="rtm-h"><div class="rtm-t">⟳ Retest Monitor</div><div class="rtm-stats"><span class="k">Total </span><span class="v vt">${tot}</span><span class="k">Active </span><span class="v va">${acts.length}</span></div></div>`;
+  h+='<div class="rtm-body">';
+
+  if(!evts.length){
+    h+='<div class="rtm-empty">Waiting for retests… (need at least 1 sealed mini candle)</div>';
+  } else {
+    // Show newest first
+    for(let i=evts.length-1;i>=0;i--){
+      const e=evts[i];
+      const isAct=actSet.has(`${e.cluster_id}-${e.mini_id}`);
+      const cls=e.conv_match?'rt-conv':(isAct?'rt-active':'');
+      const digCls=e.conv_match?'gold':(e.e2_match?'e2h':'');
+      h+=`<div class="rtm-row ${cls}">`;
+      h+=`<span class="rtm-time">${eT(e.epoch)}</span>`;
+      h+=`<span class="rtm-ref">C${e.cluster_id}M${e.mini_id}</span>`;
+      h+=`<span class="rtm-range">${fP(e.range_low)}–${fP(e.range_high)}</span>`;
+      h+=`<span style="color:var(--td)">@${fP(e.price)}</span>`;
+      h+=`<span class="rtm-dig ${digCls}">${e.digit}</span>`;
+      if(e.conv_match) h+=`<span class="rtm-tag cv">⚡ CONV</span>`;
+      if(e.e2_match) h+=`<span class="rtm-tag e2t">E2</span>`;
+      if(isAct) h+=`<span style="color:var(--grn);font-size:8px;font-weight:600">● ACTIVE</span>`;
+      h+=`</div>`;
+    }
+  }
+
+  // Active ranges strip
+  if(acts.length){
+    h+=`<div class="rtm-act">`;
+    for(const a of acts) h+=`<span class="rtm-act-chip">C${a.cluster_id}M${a.mini_id} ${fP(a.low)}–${fP(a.high)}</span>`;
+    h+=`</div>`;
+  }
+
+  h+='</div></div></div>';
+  rtP.innerHTML=h;
+}
+
+connect();
+</script>
+</body>
+</html>
