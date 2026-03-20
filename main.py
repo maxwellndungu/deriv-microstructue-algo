@@ -897,6 +897,7 @@ def get_ui_state() -> dict:
         "execution_enabled": state["execution_enabled"],
         "trades": state["trades"][-20:],
         "trade_stats": state["trade_stats"],
+        "engine_pnl": state["engine_pnl"],
     }
 
 # ---------------------------------------------------------------------------
