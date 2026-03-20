@@ -603,7 +603,8 @@ def handle_proposal_open_contract(data: dict):
             # Decrement active trade count
             state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
             
-            print(f"[EXEC] Settled: {engine_id} {trade['contract_type']} b:{trade['barrier']} -> {trade['outcome']} ${profit:.2f}")
+            # Debug logging to verify contract_id routing
+            print(f"[SETTLEMENT] contract_id={contract_id} | engine={engine_id} | {trade['contract_type']} b:{trade['barrier']} | stake=${trade['stake']:.2f} | profit=${profit:.2f} | outcome={trade['outcome']}")
             save_trades_to_disk()
             break
 
@@ -892,7 +893,7 @@ async def deriv_feed():
                             trade_record = pending_contract_list.pop(0)
                             trade_record["contract_id"] = contract_id
                             trade_record["buy_price"] = buy_price
-                            print(f"[EXEC] Trade placed: {trade_record['engine']} {trade_record['contract_type']} b:{trade_record['barrier']} contract:{contract_id}")
+                            print(f"[BUY_RESPONSE] contract_id={contract_id} | engine={trade_record['engine']} | {trade_record['contract_type']} b:{trade_record['barrier']} | stake=${trade_record['stake']:.2f} | buy_price=${buy_price:.2f}")
                             
                             # Subscribe to settlement
                             if contract_id:
