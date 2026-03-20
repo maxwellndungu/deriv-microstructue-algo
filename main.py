@@ -509,11 +509,6 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
                                 probability: float, cluster_id: int, mini_id: int,
                                 price: float, digit: int, epoch: int):
     """Place a trade via the Deriv WS connection. Non-blocking."""
-    global deriv_ws_ref
-    if deriv_ws_ref is None:
-        print("[EXEC] No Deriv WS connection available")
-        return
-
     ct = signal["contract_type"]
     barrier = signal.get("barrier")
     signal_strength = signal["signal_strength"]
@@ -591,11 +586,16 @@ def handle_proposal_open_contract(data: dict):
     if not is_settled:
         return
 
+    # Extract outcome digit from exit tick
+    exit_tick = poc.get("exit_tick_display_value", "")
+    outcome_digit = int(str(exit_tick).replace(".", "")[-1]) if exit_tick else None
+
     # Find the matching trade
     for trade in state["trades"]:
         if trade["contract_id"] == contract_id and trade["outcome"] == "pending":
             profit = float(poc.get("profit", 0))
             trade["profit"] = profit
+            trade["outcome_digit"] = outcome_digit
             payout = poc.get("payout")
             trade["payout"] = payout
             buy_price = float(trade.get("buy_price") or trade["stake"])
@@ -720,7 +720,8 @@ def check_retests(epoch: int, quote: float, digit: int):
                     best = max(signals, key=lambda s: s["signal_strength"])
                     prob  = calculate_probability(best["contract_type"], best.get("barrier"))
                     stake = calculate_stake(best["contract_type"], best.get("barrier"), engine_id)
-                    stake = get_adjusted_stake(stake)
+                    if best["contract_type"] not in ("DIGITMATCH", "DIGITDIFF"):
+                        stake = get_adjusted_stake(stake)
                     
                     # Track trades per mini per engine
                     state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
