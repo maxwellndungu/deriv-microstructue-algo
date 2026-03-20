@@ -1064,6 +1064,18 @@ async def lifespan(application):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Render and other platforms."""
+    return {"status": "ok", "connected": state["connected"], "synced": state["synced"]}
+
+
+@app.head("/health")
+async def health_check_head():
+    """Health check HEAD endpoint for Render."""
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui():
     with open("index.html", "r") as f:
