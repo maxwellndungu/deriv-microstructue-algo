@@ -18,6 +18,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 import websockets
 
+# Global lock for serializing trade sends
+trade_send_lock = asyncio.Lock()
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -114,7 +117,7 @@ def get_adjusted_stake(base_stake: float) -> float:
     if active == 0:
         return base_stake
     adjusted = base_stake / active
-    return round(max(MIN_STAKE, adjusted), 2)
+    return round(max(MIN_STAKE, min(MAX_STAKE, adjusted)), 2)
 
 # ---------------------------------------------------------------------------
 # Mini candle builder
@@ -480,7 +483,7 @@ def load_trades_from_disk():
 
 # Global reference to Deriv WS for trade execution
 deriv_ws_ref = None
-pending_engine_trades: dict = {}  # contract_id -> trade_record mapping
+pending_contract_list: list = []  # FIFO list of trade records awaiting buy response
 
 # Browser WebSocket clients
 ui_clients: list[WebSocket] = []
@@ -546,14 +549,13 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     state["trade_stats"]["total"] += 1
 
     try:
-        # Send buy request and return immediately
-        await deriv_ws_ref.send(json.dumps(buy_req))
-        print(f"[EXEC] Buy sent: {engine_id} {ct} b:{barrier}")
-        
-        # Store trade record temporarily - will be matched by contract_id when buy response arrives
-        # Use a temporary ID based on trade record index
-        temp_id = f"temp_{len(state['trades']) - 1}_{epoch}"
-        pending_engine_trades[temp_id] = trade_record
+        # Serialize trade sends with lock to ensure FIFO order
+        async with trade_send_lock:
+            await deriv_ws_ref.send(json.dumps(buy_req))
+            print(f"[EXEC] Buy sent: {engine_id} {ct} b:{barrier}")
+            
+            # Add to FIFO list - buy responses arrive in same order as sends
+            pending_contract_list.append(trade_record)
 
     except Exception as e:
         print(f"[EXEC] Trade send error: {e}")
@@ -879,40 +881,35 @@ async def deriv_feed():
 
                         process_tick(epoch, quote)
 
-                    # Handle buy responses - match to pending trades by contract_id
+                    # Handle buy responses - FIFO matching since sends are serialized
                     elif "buy" in data:
                         buy = data["buy"]
                         contract_id = buy.get("contract_id")
                         buy_price = buy.get("buy_price")
                         
-                        # Find the pending trade and update it
-                        for temp_id, trade_record in list(pending_engine_trades.items()):
-                            if trade_record["contract_id"] is None:
-                                trade_record["contract_id"] = contract_id
-                                trade_record["buy_price"] = buy_price
-                                print(f"[EXEC] Trade placed: {trade_record['engine']} {trade_record['contract_type']} b:{trade_record['barrier']} contract:{contract_id}")
-                                
-                                # Subscribe to settlement
-                                if contract_id:
-                                    sub_req = {
-                                        "proposal_open_contract": 1,
-                                        "contract_id": contract_id,
-                                        "subscribe": 1,
-                                    }
-                                    await ws.send(json.dumps(sub_req))
-                                
-                                # Remove from pending
-                                del pending_engine_trades[temp_id]
-                                break
+                        # Pop first pending trade (FIFO order guaranteed by lock)
+                        if pending_contract_list:
+                            trade_record = pending_contract_list.pop(0)
+                            trade_record["contract_id"] = contract_id
+                            trade_record["buy_price"] = buy_price
+                            print(f"[EXEC] Trade placed: {trade_record['engine']} {trade_record['contract_type']} b:{trade_record['barrier']} contract:{contract_id}")
+                            
+                            # Subscribe to settlement
+                            if contract_id:
+                                sub_req = {
+                                    "proposal_open_contract": 1,
+                                    "contract_id": contract_id,
+                                    "subscribe": 1,
+                                }
+                                await ws.send(json.dumps(sub_req))
                     
                     elif "error" in data and data.get("msg_type") == "buy":
                         print(f"[EXEC] Buy error: {data['error']['message']}")
                         # Mark the first pending trade as error
-                        for temp_id, trade_record in list(pending_engine_trades.items()):
-                            if trade_record["contract_id"] is None:
-                                trade_record["outcome"] = "error"
-                                del pending_engine_trades[temp_id]
-                                break
+                        if pending_contract_list:
+                            trade_record = pending_contract_list.pop(0)
+                            trade_record["outcome"] = "error"
+                            state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
 
                     # Handle trade settlement updates
                     elif "proposal_open_contract" in data:
