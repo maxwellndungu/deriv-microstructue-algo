@@ -18,15 +18,23 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 import websockets
 
-# Global lock for serializing trade sends
-trade_send_lock = asyncio.Lock()
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=67340"
-DERIV_TOKEN = "iGwTSVES9MsY9bv"
+DERIV_TOKEN = "iGwTSVES9MsY9bv"  # Main tick feed token
 SYMBOL = "1HZ10V"
+
+# Engine-specific API tokens for dedicated WebSocket connections
+API_TOKEN_E1 = "iGwTSVES9MsY9bv"
+API_TOKEN_E2 = "xh7mAW7JGnldZCM"
+API_TOKEN_E3 = "ew4g6lCQ3SNdYNI"
+
+ENGINE_TOKENS = {
+    "E1_TAPPED":     API_TOKEN_E1,
+    "E2_UNTAPPED":   API_TOKEN_E2,
+    "E3_FULL_RANGE": API_TOKEN_E3,
+}
 DECIMAL_PLACES = 2
 TICKS_PER_MINI = 10
 MINIS_PER_CLUSTER = 6
@@ -481,9 +489,15 @@ def load_trades_from_disk():
     except Exception as e:
         print(f"[LOAD] Error loading trades: {e}")
 
-# Global reference to Deriv WS for trade execution
+# Global WebSocket references - one per engine for dedicated connections
+engine_ws = {
+    "E1_TAPPED":     None,
+    "E2_UNTAPPED":   None,
+    "E3_FULL_RANGE": None,
+}
+
+# Main tick feed WebSocket reference
 deriv_ws_ref = None
-pending_contract_list: list = []  # FIFO list of trade records awaiting buy response
 
 # Browser WebSocket clients
 ui_clients: list[WebSocket] = []
@@ -548,18 +562,22 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     state["trades"].append(trade_record)
     state["trade_stats"]["total"] += 1
 
+    # Use engine-specific WebSocket connection
+    ws = engine_ws.get(engine_id)
+    if ws is None:
+        print(f"[EXEC] {engine_id} not connected")
+        trade_record["outcome"] = "error"
+        state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
+        return
+
     try:
-        # Serialize trade sends with lock to ensure FIFO order
-        async with trade_send_lock:
-            await deriv_ws_ref.send(json.dumps(buy_req))
-            print(f"[EXEC] Buy sent: {engine_id} {ct} b:{barrier}")
-            
-            # Add to FIFO list - buy responses arrive in same order as sends
-            pending_contract_list.append(trade_record)
+        await ws.send(json.dumps(buy_req))
+        print(f"[EXEC] Buy sent: {engine_id} {ct} b:{barrier}")
 
     except Exception as e:
         print(f"[EXEC] Trade send error: {e}")
         trade_record["outcome"] = "error"
+        state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
 
 
 def handle_proposal_open_contract(data: dict):
@@ -832,7 +850,83 @@ def get_ui_state() -> dict:
     }
 
 # ---------------------------------------------------------------------------
-# Deriv WebSocket feed
+# Engine WebSocket feeds - one per engine for dedicated buy/settlement handling
+# ---------------------------------------------------------------------------
+async def engine_feed(engine_id: str):
+    """Dedicated WebSocket connection for a single engine to handle buy/settlement."""
+    token = ENGINE_TOKENS[engine_id]
+    while True:
+        try:
+            print(f"[{engine_id}] Connecting to Deriv WebSocket...")
+            async with websockets.connect(
+                DERIV_WS_URL,
+                ping_interval=20,
+                ping_timeout=60,
+                close_timeout=10
+            ) as ws:
+                engine_ws[engine_id] = ws
+                
+                # Authorize
+                await ws.send(json.dumps({"authorize": token}))
+                auth_resp = await ws.recv()
+                auth_data = json.loads(auth_resp)
+                
+                if "error" in auth_data:
+                    print(f"[{engine_id}] Auth failed: {auth_data['error']['message']}")
+                    engine_ws[engine_id] = None
+                    await asyncio.sleep(5)
+                    continue
+                
+                balance = auth_data.get("authorize", {}).get("balance", "N/A")
+                print(f"[{engine_id}] Connected — balance: {balance}")
+                
+                # Listen for buy responses and settlement messages
+                async for message in ws:
+                    data = json.loads(message)
+                    
+                    if "buy" in data:
+                        # Match to the most recent pending trade for this engine
+                        contract_id = data["buy"].get("contract_id")
+                        buy_price = data["buy"].get("buy_price")
+                        
+                        for trade in reversed(state["trades"]):
+                            if trade["engine"] == engine_id and trade["contract_id"] is None:
+                                trade["contract_id"] = contract_id
+                                trade["buy_price"] = buy_price
+                                print(f"[BUY_RESPONSE] contract_id={contract_id} | engine={engine_id} | {trade['contract_type']} b:{trade['barrier']} | stake=${trade['stake']:.2f} | buy_price=${buy_price:.2f}")
+                                
+                                # Subscribe to settlement
+                                if contract_id:
+                                    await ws.send(json.dumps({
+                                        "proposal_open_contract": 1,
+                                        "contract_id": contract_id,
+                                        "subscribe": 1,
+                                    }))
+                                break
+                    
+                    elif "error" in data and data.get("msg_type") == "buy":
+                        print(f"[{engine_id}] Buy error: {data['error']['message']}")
+                        # Mark the most recent pending trade as error
+                        for trade in reversed(state["trades"]):
+                            if trade["engine"] == engine_id and trade["contract_id"] is None:
+                                trade["outcome"] = "error"
+                                state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
+                                break
+                    
+                    elif "proposal_open_contract" in data:
+                        handle_proposal_open_contract(data)
+                        
+        except websockets.exceptions.ConnectionClosedError as e:
+            engine_ws[engine_id] = None
+            print(f"[{engine_id}] Connection closed: {e}")
+            await asyncio.sleep(5)
+        except Exception as e:
+            engine_ws[engine_id] = None
+            print(f"[{engine_id}] Error: {e} — retrying in 5s")
+            await asyncio.sleep(5)
+
+# ---------------------------------------------------------------------------
+# Main tick feed WebSocket
 # ---------------------------------------------------------------------------
 async def deriv_feed():
     global deriv_ws_ref
@@ -881,40 +975,6 @@ async def deriv_feed():
                             state["cluster_epoch_start"] = epoch
 
                         process_tick(epoch, quote)
-
-                    # Handle buy responses - FIFO matching since sends are serialized
-                    elif "buy" in data:
-                        buy = data["buy"]
-                        contract_id = buy.get("contract_id")
-                        buy_price = buy.get("buy_price")
-                        
-                        # Pop first pending trade (FIFO order guaranteed by lock)
-                        if pending_contract_list:
-                            trade_record = pending_contract_list.pop(0)
-                            trade_record["contract_id"] = contract_id
-                            trade_record["buy_price"] = buy_price
-                            print(f"[BUY_RESPONSE] contract_id={contract_id} | engine={trade_record['engine']} | {trade_record['contract_type']} b:{trade_record['barrier']} | stake=${trade_record['stake']:.2f} | buy_price=${buy_price:.2f}")
-                            
-                            # Subscribe to settlement
-                            if contract_id:
-                                sub_req = {
-                                    "proposal_open_contract": 1,
-                                    "contract_id": contract_id,
-                                    "subscribe": 1,
-                                }
-                                await ws.send(json.dumps(sub_req))
-                    
-                    elif "error" in data and data.get("msg_type") == "buy":
-                        print(f"[EXEC] Buy error: {data['error']['message']}")
-                        # Mark the first pending trade as error
-                        if pending_contract_list:
-                            trade_record = pending_contract_list.pop(0)
-                            trade_record["outcome"] = "error"
-                            state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
-
-                    # Handle trade settlement updates
-                    elif "proposal_open_contract" in data:
-                        handle_proposal_open_contract(data)
 
         except websockets.exceptions.ConnectionClosedError as e:
             print(f"[DERIV_FEED] Connection closed: {e}")
@@ -969,8 +1029,12 @@ async def lifespan(application):
     print("[APP] Starting lifespan event...")
     # Start fresh each time - don't load previous trades
     print("[APP] Starting with clean slate (no trades loaded)")
-    print("[APP] Creating deriv_feed task...")
+    print("[APP] Creating main tick feed task...")
     asyncio.create_task(deriv_feed())
+    print("[APP] Creating engine feed tasks...")
+    asyncio.create_task(engine_feed("E1_TAPPED"))
+    asyncio.create_task(engine_feed("E2_UNTAPPED"))
+    asyncio.create_task(engine_feed("E3_FULL_RANGE"))
     print("[APP] Creating broadcast_loop task...")
     asyncio.create_task(broadcast_loop())
     print("[APP] Startup complete!")
