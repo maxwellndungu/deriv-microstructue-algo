@@ -807,22 +807,15 @@ def check_retests(epoch: int, quote: float, digit: int):
                     sm["convergence"], sm["cluster_id"], sm["mini_id"]
                 )
                 if best_signal:
-                    # Evaluate conv_match against the ACTUAL signal that will be traded (after barrier swap)
-                    ct = best_signal["contract_type"]
-                    b = best_signal.get("barrier")
-                    conv_match_actual = (
-                        (ct == "DIGITMATCH" and b == str(digit)) or
-                        (ct == "DIGITDIFF" and b != str(digit)) or
-                        (ct == "DIGITOVER" and b is not None and digit > int(b)) or
-                        (ct == "DIGITUNDER" and b is not None and digit < int(b)) or
-                        (ct == "DIGITEVEN" and digit % 2 == 0) or
-                        (ct == "DIGITODD" and digit % 2 != 0)
-                    )
-                    if conv_match_actual:
-                        asyncio.ensure_future(execute_trade(
-                            best_signal, sm["cluster_id"], sm["mini_id"],
-                            quote, digit, epoch
-                        ))
+                    # Deriv settles on tick N+1 (the tick after contract placement).
+                    # The digit we observe right now is tick N — not the settling digit.
+                    # Gating on tick N's digit is checking the wrong tick entirely.
+                    # conv_match is still logged above for ML analysis but must not
+                    # block execution. Fire the trade on signal + retest alone.
+                    asyncio.ensure_future(execute_trade(
+                        best_signal, sm["cluster_id"], sm["mini_id"],
+                        quote, digit, epoch
+                    ))
 
     state["active_retests"] = active
 
