@@ -601,10 +601,6 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     state["trades"].append(trade_record)
     state["trade_stats"]["total"] += 1
 
-    # Track trades per mini
-    mini_key = f"C{cluster_id}M{mini_id}"
-    state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
-
     try:
         # Send buy — response will be routed via the main message loop
         await deriv_ws_ref.send(json.dumps(buy_req))
