@@ -262,34 +262,16 @@ def run_engine1(tapped_digits: list) -> list:
         "signal_strength": most_strength,
     })
 
-    # Signal 2: Digits that appeared 0 times in tapped -> DIFFER
-    for d in range(10):
-        if freq.get(d, 0) == 0:
-            signals.append({
-                "engine": "E1_TAPPED",
-                "contract_type": "DIGITDIFF",
-                "barrier": str(d),
-                "signal": f"digit {d} absent from tapped (0 appearances)",
-                "signal_strength": round(1.0 - (0 / total), 3),
-            })
-
-    # Signal 3: Even/Odd balance of tapped
-    evens = sum(1 for d in tapped_digits if d % 2 == 0)
-    odds = total - evens
-    if evens != odds:
-        dominant = "even" if evens > odds else "odd"
-        eo_strength = round(abs(evens - odds) / total, 3)
-        if eo_strength > 0.1:
-            signals.append({
-                "engine": "E1_TAPPED",
-                "contract_type": "DIGITEVEN" if dominant == "even" else "DIGITODD",
-                "barrier": None,
-                "signal": f"tapped skews {dominant} ({evens}E / {odds}O)",
-                "signal_strength": eo_strength,
-            })
-
-    # Signal 4: Over/Under — dynamic barrier selection
-    signals.extend(get_over_under_signals(tapped_digits, "E1_TAPPED"))
+    # Signal 2: Least frequent digit in tapped -> DIFFER
+    least_digit, least_count = freq.most_common()[-1]
+    least_strength = round(1.0 - (least_count / total), 3)
+    signals.append({
+        "engine": "E1_TAPPED",
+        "contract_type": "DIGITDIFF",
+        "barrier": str(least_digit),
+        "signal": f"digit {least_digit} appears {least_count}x in tapped (least frequent)",
+        "signal_strength": least_strength,
+    })
 
     signals.sort(key=lambda x: x["signal_strength"], reverse=True)
     return signals
@@ -324,32 +306,13 @@ def run_engine3(full_range_digits: list) -> list:
     # Signal 2: Least frequent digit across full range -> DIFFER
     least_digit, least_count = freq.most_common()[-1]
     least_strength = round(1.0 - (least_count / total), 3)
-    if least_strength > 0.5:
-        signals.append({
-            "engine": "E3_FULL",
-            "contract_type": "DIGITDIFF",
-            "barrier": str(least_digit),
-            "signal": f"digit {least_digit} appears {least_count}x in full range (least frequent)",
-            "signal_strength": least_strength,
-        })
-
-    # Signal 3: Even/Odd balance
-    evens = sum(1 for d in full_range_digits if d % 2 == 0)
-    odds = total - evens
-    if evens != odds:
-        dominant = "even" if evens > odds else "odd"
-        eo_strength = round(abs(evens - odds) / total, 3)
-        if eo_strength > 0.1:
-            signals.append({
-                "engine": "E3_FULL",
-                "contract_type": "DIGITEVEN" if dominant == "even" else "DIGITODD",
-                "barrier": None,
-                "signal": f"full range skews {dominant} ({evens}E / {odds}O)",
-                "signal_strength": eo_strength,
-            })
-
-    # Signal 4: Over/Under — dynamic barrier selection
-    signals.extend(get_over_under_signals(full_range_digits, "E3_FULL"))
+    signals.append({
+        "engine": "E3_FULL",
+        "contract_type": "DIGITDIFF",
+        "barrier": str(least_digit),
+        "signal": f"digit {least_digit} appears {least_count}x in full range (least frequent)",
+        "signal_strength": least_strength,
+    })
 
     signals.sort(key=lambda x: x["signal_strength"], reverse=True)
     return signals
@@ -385,32 +348,13 @@ def run_engine2(untapped_digits: list) -> list:
     # Signal 2: Least frequent digit in untapped -> DIFFER (rarely in gaps, unlikely to appear)
     least_digit, least_count = freq.most_common()[-1]
     least_strength = round(1.0 - (least_count / total), 3)
-    if least_strength > 0.5:
-        signals.append({
-            "engine": "E2_UNTAPPED",
-            "contract_type": "DIGITDIFF",
-            "barrier": str(least_digit),
-            "signal": f"digit {least_digit} appears {least_count}x in untapped (least frequent — unlikely to fill)",
-            "signal_strength": least_strength,
-        })
-
-    # Signal 3: Even/Odd balance
-    evens = sum(1 for d in untapped_digits if d % 2 == 0)
-    odds = total - evens
-    if evens != odds:
-        dominant = "even" if evens > odds else "odd"
-        eo_strength = round(abs(evens - odds) / total, 3)
-        if eo_strength > 0.1:
-            signals.append({
-                "engine": "E2_UNTAPPED",
-                "contract_type": "DIGITEVEN" if dominant == "even" else "DIGITODD",
-                "barrier": None,
-                "signal": f"untapped skews {dominant} ({evens}E / {odds}O)",
-                "signal_strength": eo_strength,
-            })
-
-    # Signal 4: Over/Under — dynamic barrier selection
-    signals.extend(get_over_under_signals(untapped_digits, "E2_UNTAPPED"))
+    signals.append({
+        "engine": "E2_UNTAPPED",
+        "contract_type": "DIGITDIFF",
+        "barrier": str(least_digit),
+        "signal": f"digit {least_digit} appears {least_count}x in untapped (least frequent — unlikely to fill)",
+        "signal_strength": least_strength,
+    })
 
     signals.sort(key=lambda x: x["signal_strength"], reverse=True)
     return signals
