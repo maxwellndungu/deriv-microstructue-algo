@@ -29,10 +29,11 @@ TICKS_PER_MINI = 10
 MINIS_PER_CLUSTER = 6
 TICKS_PER_CLUSTER = TICKS_PER_MINI * MINIS_PER_CLUSTER
 MAX_TRADES_PER_RETEST = 1
-STAKE_AMOUNT = 1.00
-MIN_CONVERGENCE_STRENGTH = 0.50
-LOW_VALUE_STRENGTH_OVERRIDE = 0.70
 TRADES_FILE = "trades.json"
+
+# Stake configuration
+MIN_STAKE = 0.35
+MAX_STAKE = 2.00
 
 # ---------------------------------------------------------------------------
 # Digit extraction (handles trailing-zero bug)
@@ -49,6 +50,71 @@ def format_price(quote_float: float, decimal_places: int = DECIMAL_PLACES) -> st
         Decimal('0.' + '0' * decimal_places), rounding=ROUND_DOWN
     )
     return str(fmt)
+
+# ---------------------------------------------------------------------------
+# Probability and Stake Calculators
+# ---------------------------------------------------------------------------
+def calculate_probability(contract_type: str, barrier) -> float:
+    """Calculate win probability for a given contract and barrier."""
+    if contract_type == "DIGITMATCH":
+        return 0.10
+    if contract_type == "DIGITDIFF":
+        return 0.90
+    if contract_type in ("DIGITEVEN", "DIGITODD"):
+        return 0.50
+    if contract_type == "DIGITOVER" and barrier is not None:
+        return (9 - int(barrier)) / 10
+    if contract_type == "DIGITUNDER" and barrier is not None:
+        return int(barrier) / 10
+    return 0.50  # fallback
+
+
+def calculate_stake(contract_type: str, barrier, engine_id: str) -> float:
+    """
+    Calculate stake based on contract probability and engine P&L state.
+    Range: $0.35 minimum to $2.00 maximum.
+    """
+    # MATCH — always minimum
+    if contract_type == "DIGITMATCH":
+        return MIN_STAKE
+
+    # DIFFER — always maximum
+    if contract_type == "DIGITDIFF":
+        return MAX_STAKE
+
+    # EVEN/ODD — depends on engine P&L state
+    if contract_type in ("DIGITEVEN", "DIGITODD"):
+        pnl = state["engine_pnl"][engine_id]["net_pnl"]
+        if pnl > 0:
+            return 1.00
+        elif pnl < 0:
+            return 0.50
+        else:
+            return 0.75
+
+    # OVER/UNDER — linear scaling by probability
+    prob = calculate_probability(contract_type, barrier)
+    stake = MIN_STAKE + (prob * (MAX_STAKE - MIN_STAKE))
+    stake = max(MIN_STAKE, min(MAX_STAKE, stake))
+    return round(stake, 2)
+
+
+def get_active_trade_count() -> int:
+    """Count trades currently pending settlement."""
+    return sum(1 for t in state["trades"] if t["outcome"] == "pending")
+
+
+def get_adjusted_stake(base_stake: float) -> float:
+    """
+    Adjust stake based on global exposure rule.
+    Max total exposure per cycle = $2.50
+    """
+    MAX_EXPOSURE = 2.50
+    active = get_active_trade_count()
+    if active == 0:
+        return base_stake
+    adjusted = base_stake / active
+    return round(max(MIN_STAKE, adjusted), 2)
 
 # ---------------------------------------------------------------------------
 # Mini candle builder
@@ -92,9 +158,6 @@ def build_mini_candle(ticks: list, mini_id: int) -> dict:
     e2_signals = run_engine2(untapped_digits)
     e3_signals = run_engine3(full_range_digits)
 
-    # Convergence detector
-    convergence = detect_convergence(e1_signals, e2_signals, e3_signals)
-
     return {
         "mini_id": mini_id,
         "epoch_start": min(epochs),
@@ -112,7 +175,6 @@ def build_mini_candle(ticks: list, mini_id: int) -> dict:
         "e1_signals": e1_signals,
         "e2_signals": e2_signals,
         "e3_signals": e3_signals,
-        "convergence": convergence,
         "ticks": ticks,
     }
 
@@ -292,43 +354,6 @@ def run_engine3(full_range_digits: list) -> list:
     signals.sort(key=lambda x: x["signal_strength"], reverse=True)
     return signals
 
-# ---------------------------------------------------------------------------
-# Convergence Detector
-# ---------------------------------------------------------------------------
-def detect_convergence(e1_signals: list, e2_signals: list, e3_signals: list) -> list:
-    """
-    Finds contract_type + barrier combinations that appear in ALL 3 engines.
-    Returns list of convergence dicts with combined average strength.
-    """
-    def sig_map(signals):
-        m = {}
-        for s in signals:
-            key = s["contract_type"] + "|" + (s["barrier"] or "")
-            if key not in m or s["signal_strength"] > m[key]["signal_strength"]:
-                m[key] = s
-        return m
-
-    m1, m2, m3 = sig_map(e1_signals), sig_map(e2_signals), sig_map(e3_signals)
-    common_keys = set(m1.keys()) & set(m2.keys()) & set(m3.keys())
-
-    convergence = []
-    for key in common_keys:
-        s1, s2, s3 = m1[key], m2[key], m3[key]
-        avg_strength = round((s1["signal_strength"] + s2["signal_strength"] + s3["signal_strength"]) / 3, 3)
-        convergence.append({
-            "contract_type": s1["contract_type"],
-            "barrier": s1["barrier"],
-            "avg_strength": avg_strength,
-            "e1_strength": s1["signal_strength"],
-            "e2_strength": s2["signal_strength"],
-            "e3_strength": s3["signal_strength"],
-            "e1_signal": s1["signal"],
-            "e2_signal": s2["signal"],
-            "e3_signal": s3["signal"],
-        })
-
-    convergence.sort(key=lambda x: x["avg_strength"], reverse=True)
-    return convergence
 
 # ---------------------------------------------------------------------------
 # Engine 2 — Untapped Price Analysis
@@ -423,16 +448,14 @@ def build_cluster_candle(minis: list, cluster_id: int) -> dict:
         summary = {k: v for k, v in m.items() if k != "ticks"}
         mini_summaries.append(summary)
 
-    # Collect all engine signals and convergence from minis
+    # Collect all engine signals from minis
     all_e1_signals = []
     all_e2_signals = []
     all_e3_signals = []
-    all_convergence = []
     for m in minis:
         all_e1_signals.extend(m.get("e1_signals", []))
         all_e2_signals.extend(m.get("e2_signals", []))
         all_e3_signals.extend(m.get("e3_signals", []))
-        all_convergence.extend(m.get("convergence", []))
 
     return {
         "cluster_id": cluster_id,
@@ -451,7 +474,6 @@ def build_cluster_candle(minis: list, cluster_id: int) -> dict:
         "e1_signals": all_e1_signals,
         "e2_signals": all_e2_signals,
         "e3_signals": all_e3_signals,
-        "convergence": all_convergence,
     }
 
 # ---------------------------------------------------------------------------
@@ -480,6 +502,12 @@ state = {
     "trades": [],
     "trade_stats": {"total": 0, "wins": 0, "losses": 0, "pnl": 0.0},
     "traded_minis": {},  # key: "C{cid}M{mid}" -> trade count
+    "engine_pnl": {
+        "E1_TAPPED":     {"total_profit": 0.0, "total_loss": 0.0, "net_pnl": 0.0},
+        "E2_UNTAPPED":   {"total_profit": 0.0, "total_loss": 0.0, "net_pnl": 0.0},
+        "E3_FULL_RANGE": {"total_profit": 0.0, "total_loss": 0.0, "net_pnl": 0.0},
+    },
+    "active_trade_count": 0,
 }
 
 
@@ -516,27 +544,32 @@ ui_clients: list[WebSocket] = []
 # ---------------------------------------------------------------------------
 # Execution Engine
 # ---------------------------------------------------------------------------
-async def execute_trade(convergence_signal: dict, cluster_id: int, mini_id: int,
-                        price: float, digit: int, epoch: int):
+async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
+                                probability: float, cluster_id: int, mini_id: int,
+                                price: float, digit: int, epoch: int):
     """Place a trade via the Deriv WS connection. Non-blocking."""
     global deriv_ws_ref
     if deriv_ws_ref is None:
         print("[EXEC] No Deriv WS connection available")
         return
 
-    ct = convergence_signal["contract_type"]
-    barrier = convergence_signal.get("barrier")
-    avg_str = convergence_signal["avg_strength"]
+    ct = signal["contract_type"]
+    barrier = signal.get("barrier")
+    signal_strength = signal["signal_strength"]
+
+    # Determine P&L state
+    net = state["engine_pnl"][engine_id]["net_pnl"]
+    pnl_state = "positive" if net > 0 else ("negative" if net < 0 else "neutral")
 
     # Build buy request
     buy_req = {
         "buy": 1,
-        "price": STAKE_AMOUNT,
+        "price": stake,
         "parameters": {
             "contract_type": ct,
             "symbol": SYMBOL,
             "currency": "USD",
-            "amount": STAKE_AMOUNT,
+            "amount": stake,
             "basis": "stake",
             "duration": 1,
             "duration_unit": "t",
@@ -550,13 +583,15 @@ async def execute_trade(convergence_signal: dict, cluster_id: int, mini_id: int,
         "epoch": epoch,
         "cluster_id": cluster_id,
         "mini_id": mini_id,
+        "engine": engine_id,
         "contract_type": ct,
         "barrier": barrier,
-        "original_barrier": convergence_signal.get("_original_barrier"),  # Track if barrier was swapped
-        "stake": STAKE_AMOUNT,
+        "stake": stake,
+        "probability": probability,
+        "pnl_state": pnl_state,
+        "signal_strength": signal_strength,
         "entry_price": price,
         "entry_digit": digit,
-        "convergence_strength": avg_str,
         "contract_id": None,
         "outcome": "pending",
         "profit": 0.0,
@@ -634,80 +669,22 @@ def handle_proposal_open_contract(data: dict):
                 trade["outcome"] = "loss"
                 state["trade_stats"]["losses"] += 1
             state["trade_stats"]["pnl"] = round(state["trade_stats"]["pnl"] + profit, 2)
-            print(f"[EXEC] Settled: {trade['contract_type']} b:{trade['barrier']} -> {trade['outcome']} ${profit:.2f}")
+            
+            # Update per-engine P&L
+            engine_id = trade.get("engine")
+            if engine_id and engine_id in state["engine_pnl"]:
+                ep = state["engine_pnl"][engine_id]
+                if profit > 0:
+                    ep["total_profit"] = round(ep["total_profit"] + profit, 2)
+                else:
+                    ep["total_loss"] = round(ep["total_loss"] + abs(profit), 2)
+                ep["net_pnl"] = round(ep["total_profit"] - ep["total_loss"], 2)
+            
+            print(f"[EXEC] Settled: {engine_id} {trade['contract_type']} b:{trade['barrier']} -> {trade['outcome']} ${profit:.2f}")
             save_trades_to_disk()
             break
 
 
-# Low-value contracts that should not be traded alone
-_LOW_VALUE_SIGNALS = {
-    ("DIGITOVER", "0"), ("DIGITOVER", 0),
-    ("DIGITUNDER", "9"), ("DIGITUNDER", 9),
-}
-
-
-def _is_low_value(ct: str, barrier) -> bool:
-    return (ct, barrier) in _LOW_VALUE_SIGNALS or (ct, str(barrier)) in _LOW_VALUE_SIGNALS
-
-
-def should_execute_trade(convergence: list, cluster_id: int, mini_id: int) -> Optional[dict]:
-    """Check if execution conditions are met. Returns the best signal or None.
-    
-    Applies barrier swaps for better payouts:
-    - DIGITOVER b:0 → execute as b:1 (better payout, same direction)
-    - DIGITUNDER b:9 → execute as b:8 (better payout, same direction)
-    """
-    if not state["execution_enabled"]:
-        return None
-    if not convergence:
-        return None
-
-    # Check trade limit for this mini
-    mini_key = f"C{cluster_id}M{mini_id}"
-    if state["traded_minis"].get(mini_key, 0) >= MAX_TRADES_PER_RETEST:
-        return None
-
-    # Collect qualifying signals (above strength threshold)
-    qualifying = [c for c in convergence if c["avg_strength"] >= MIN_CONVERGENCE_STRENGTH]
-    if not qualifying:
-        return None
-
-    # Block weak MATCH/DIFFER signals
-    qualifying = [
-        c for c in qualifying 
-        if not (c["contract_type"] in ["DIGITMATCH", "DIGITDIFF"] and c["avg_strength"] < 0.70)
-    ]
-    if not qualifying:
-        return None
-
-    # Check if there is at least one non-low-value signal
-    has_strong = any(not _is_low_value(c["contract_type"], c.get("barrier")) for c in qualifying)
-
-    # If only low-value signals (OVER 0 / UNDER 9), apply specific thresholds and swap barriers
-    if not has_strong:
-        for c in qualifying:
-            # OVER 0 requires higher threshold (0.85), swap to b:1 for better payout
-            if c["contract_type"] == "DIGITOVER" and str(c.get("barrier")) == "0":
-                if c["avg_strength"] >= 0.85:
-                    swapped = c.copy()
-                    swapped["barrier"] = "1"
-                    swapped["_original_barrier"] = "0"
-                    return swapped
-            # UNDER 9 keeps standard threshold (0.70), swap to b:8 for better payout
-            elif c["contract_type"] == "DIGITUNDER" and str(c.get("barrier")) == "9":
-                if c["avg_strength"] >= LOW_VALUE_STRENGTH_OVERRIDE:
-                    swapped = c.copy()
-                    swapped["barrier"] = "8"
-                    swapped["_original_barrier"] = "9"
-                    return swapped
-        return None
-
-    # Return the best non-low-value signal, or fallback to first qualifying
-    for c in qualifying:
-        if not _is_low_value(c["contract_type"], c.get("barrier")):
-            return c
-
-    return qualifying[0]
 
 # ---------------------------------------------------------------------------
 # Retest Monitor
@@ -793,7 +770,6 @@ def check_retests(epoch: int, quote: float, digit: int):
                     "range_high": sm["high"],
                     "conv_match": conv_match,
                     "e2_match": e2_match,
-                    "convergence_signals": sm["convergence"],
                 }
                 state["retest_events"].append(event)
                 state["retest_total"] += 1
@@ -802,20 +778,34 @@ def check_retests(epoch: int, quote: float, digit: int):
                 if len(state["retest_events"]) > 500:
                     state["retest_events"] = state["retest_events"][-500:]
 
-                # Execution trigger
-                best_signal = should_execute_trade(
-                    sm["convergence"], sm["cluster_id"], sm["mini_id"]
-                )
-                if best_signal:
-                    # Deriv settles on tick N+1 (the tick after contract placement).
-                    # The digit we observe right now is tick N — not the settling digit.
-                    # Gating on tick N's digit is checking the wrong tick entirely.
-                    # conv_match is still logged above for ML analysis but must not
-                    # block execution. Fire the trade on signal + retest alone.
-                    asyncio.ensure_future(execute_trade(
-                        best_signal, sm["cluster_id"], sm["mini_id"],
-                        quote, digit, epoch
-                    ))
+                # Fire each engine independently — no convergence, no merging
+                if not state["execution_enabled"]:
+                    continue
+                    
+                # Check trade limit for this mini
+                mini_key = f"C{sm['cluster_id']}M{sm['mini_id']}"
+                if state["traded_minis"].get(mini_key, 0) >= MAX_TRADES_PER_RETEST:
+                    continue
+                
+                for engine_id, signals in [
+                    ("E1_TAPPED",     sm.get("e1_signals", [])),
+                    ("E2_UNTAPPED",   sm.get("e2_signals", [])),
+                    ("E3_FULL_RANGE", sm.get("e3_signals", [])),
+                ]:
+                    if not signals:
+                        continue
+                    # Take the strongest signal from this engine
+                    best = max(signals, key=lambda s: s["signal_strength"])
+                    prob  = calculate_probability(best["contract_type"], best.get("barrier"))
+                    stake = calculate_stake(best["contract_type"], best.get("barrier"), engine_id)
+                    stake = get_adjusted_stake(stake)
+                    
+                    # Track trades per mini
+                    state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
+                    
+                    asyncio.ensure_future(
+                        execute_engine_trade(engine_id, best, stake, prob, sm["cluster_id"], sm["mini_id"], quote, digit, epoch)
+                    )
 
     state["active_retests"] = active
 
@@ -1078,9 +1068,9 @@ async def serve_ui():
 
 @app.get("/export/trades")
 async def export_trades():
-    cols = ["id", "epoch", "cluster_id", "mini_id", "contract_type", "barrier",
-            "stake", "entry_price", "entry_digit", "convergence_strength",
-            "outcome", "profit", "payout"]
+    cols = ["id", "epoch", "cluster_id", "mini_id", "engine", "contract_type", "barrier",
+            "probability", "stake", "pnl_state", "signal_strength", "entry_price",
+            "entry_digit", "outcome", "profit", "payout"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     writer.writeheader()
