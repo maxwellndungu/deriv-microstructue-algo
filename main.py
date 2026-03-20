@@ -781,11 +781,6 @@ def check_retests(epoch: int, quote: float, digit: int):
                 # Fire each engine independently — no convergence, no merging
                 if not state["execution_enabled"]:
                     continue
-                    
-                # Check trade limit for this mini
-                mini_key = f"C{sm['cluster_id']}M{sm['mini_id']}"
-                if state["traded_minis"].get(mini_key, 0) >= MAX_TRADES_PER_RETEST:
-                    continue
                 
                 for engine_id, signals in [
                     ("E1_TAPPED",     sm.get("e1_signals", [])),
@@ -794,13 +789,19 @@ def check_retests(epoch: int, quote: float, digit: int):
                 ]:
                     if not signals:
                         continue
+                    
+                    # Check trade limit for this mini per engine
+                    mini_key = f"C{sm['cluster_id']}M{sm['mini_id']}_{engine_id}"
+                    if state["traded_minis"].get(mini_key, 0) >= MAX_TRADES_PER_RETEST:
+                        continue
+                    
                     # Take the strongest signal from this engine
                     best = max(signals, key=lambda s: s["signal_strength"])
                     prob  = calculate_probability(best["contract_type"], best.get("barrier"))
                     stake = calculate_stake(best["contract_type"], best.get("barrier"), engine_id)
                     stake = get_adjusted_stake(stake)
                     
-                    # Track trades per mini
+                    # Track trades per mini per engine
                     state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
                     
                     asyncio.ensure_future(
@@ -852,10 +853,11 @@ def process_tick(epoch: int, quote: float):
             state["cluster_epoch_start"] = None
             
             # Clean up traded_minis dict - only keep last 30 clusters
+            # Keys are now "C{cid}M{mid}_{engine_id}"
             current_cid = state["current_cluster_id"]
             state["traded_minis"] = {
                 k: v for k, v in state["traded_minis"].items()
-                if int(k.split('C')[1].split('M')[0]) >= current_cid - 30
+                if int(k.split('C')[1].split('M')[0].split('_')[0]) >= current_cid - 30
             }
         else:
             state["current_mini_id"] += 1
