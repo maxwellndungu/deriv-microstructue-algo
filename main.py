@@ -697,8 +697,9 @@ def get_all_sealed_minis() -> list:
                 "mini_id": m["mini_id"],
                 "high": m["high"],
                 "low": m["low"],
-                "convergence": m.get("convergence", []),
+                "e1_signals": m.get("e1_signals", []),
                 "e2_signals": m.get("e2_signals", []),
+                "e3_signals": m.get("e3_signals", []),
             })
     for m in state["completed_minis_in_cluster"]:
         sealed.append({
@@ -706,8 +707,9 @@ def get_all_sealed_minis() -> list:
             "mini_id": m["mini_id"],
             "high": m["high"],
             "low": m["low"],
-            "convergence": m.get("convergence", []),
+            "e1_signals": m.get("e1_signals", []),
             "e2_signals": m.get("e2_signals", []),
+            "e3_signals": m.get("e3_signals", []),
         })
     return sealed
 
@@ -735,27 +737,6 @@ def check_retests(epoch: int, quote: float, digit: int):
             )
             if not already_active:
                 # New retest entry — log it
-                # Check convergence match
-                conv_match = any(
-                    (c["contract_type"] == "DIGITMATCH" and c.get("barrier") == str(digit))
-                    or (c["contract_type"] == "DIGITDIFF" and c.get("barrier") != str(digit))
-                    or (c["contract_type"] == "DIGITOVER" and c.get("barrier") is not None and digit > int(c["barrier"]))
-                    or (c["contract_type"] == "DIGITUNDER" and c.get("barrier") is not None and digit < int(c["barrier"]))
-                    or (c["contract_type"] == "DIGITEVEN" and digit % 2 == 0)
-                    or (c["contract_type"] == "DIGITODD" and digit % 2 != 0)
-                    for c in sm["convergence"]
-                )
-                # Check E2 match
-                e2_match = any(
-                    (s["contract_type"] == "DIGITMATCH" and s.get("barrier") == str(digit))
-                    or (s["contract_type"] == "DIGITDIFF" and s.get("barrier") != str(digit))
-                    or (s["contract_type"] == "DIGITOVER" and s.get("barrier") is not None and digit > int(s["barrier"]))
-                    or (s["contract_type"] == "DIGITUNDER" and s.get("barrier") is not None and digit < int(s["barrier"]))
-                    or (s["contract_type"] == "DIGITEVEN" and digit % 2 == 0)
-                    or (s["contract_type"] == "DIGITODD" and digit % 2 != 0)
-                    for s in sm["e2_signals"]
-                )
-
                 event = {
                     "epoch": epoch,
                     "cluster_id": sm["cluster_id"],
@@ -764,8 +745,6 @@ def check_retests(epoch: int, quote: float, digit: int):
                     "digit": digit,
                     "range_low": sm["low"],
                     "range_high": sm["high"],
-                    "conv_match": conv_match,
-                    "e2_match": e2_match,
                 }
                 state["retest_events"].append(event)
                 state["retest_total"] += 1
