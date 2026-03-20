@@ -509,17 +509,19 @@ function renderTrades(d){
       h+=`<span style="font-size:7px;font-weight:700;color:var(--acc);background:rgba(88,166,255,.1);padding:1px 3px;border-radius:2px">${eng}</span>`;
       h+=`<span class="tl-ct ${bc(t.contract_type)}">${sht(t.contract_type)}</span>`;
       h+=t.barrier!=null?`<span style="color:var(--td)">b:${t.barrier}</span>`:'<span style="color:var(--td)">—</span>';
-      h+=`<span class="tl-dig">${t.entry_digit}</span>`;
-      h+=`<span style="color:var(--td);font-size:7px">$${(t.stake||0).toFixed(2)}</span>`;
-      h+=`<span class="tl-str">${Math.round((t.probability||0)*100)}%</span>`;
-      h+=`<span class="tl-out ${oc}">${t.outcome.toUpperCase()}</span>`;
-      // Show outcome digit with color coding
+      // Outcome digit badge - positioned right after barrier
       if(t.outcome_digit!=null){
         const barrier=t.barrier!=null?parseInt(t.barrier):null;
         const digitMatch=barrier!=null&&t.outcome_digit===barrier;
-        const digitColor=digitMatch?'var(--red)':'var(--grn)';
-        h+=`<span style="color:${digitColor};font-size:8px;font-weight:700;margin-left:2px">→ ${t.outcome_digit}</span>`;
+        const badgeBg=digitMatch?'var(--red)':'var(--grn)';
+        const badgeText='var(--bg)';
+        h+=`<span style="background:${badgeBg};color:${badgeText};font-size:8px;font-weight:700;padding:1px 4px;border-radius:2px;margin-left:3px">${t.outcome_digit}</span>`;
+      } else if(t.outcome==='pending'){
+        h+=`<span style="background:var(--s3);color:var(--td);font-size:8px;font-weight:700;padding:1px 4px;border-radius:2px;margin-left:3px">—</span>`;
       }
+      h+=`<span style="color:var(--td);font-size:7px">$${(t.stake||0).toFixed(2)}</span>`;
+      h+=`<span class="tl-str">${Math.round((t.probability||0)*100)}%</span>`;
+      h+=`<span class="tl-out ${oc}">${t.outcome.toUpperCase()}</span>`;
       const ppct=t.payout_pct!=null?`<span style="color:var(--td);font-size:7px">${t.payout_pct>0?'+':''}${t.payout_pct}%</span>`:'';
       h+=`<span class="tl-pnl ${pCls}">${t.profit>=0?'+':''}$${t.profit.toFixed(2)}</span>${ppct}`;
       h+=`</div>`;
