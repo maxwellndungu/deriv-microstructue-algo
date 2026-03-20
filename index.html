@@ -459,6 +459,18 @@ function renderTrades(d){
   h+=`<a href="/export/trades" class="tbtn on" style="text-decoration:none;color:var(--acc);border-color:rgba(88,166,255,.4);background:rgba(88,166,255,.1)" download>⤓ CSV</a>`;
   h+=`</div></div><div class="tlp-body">`;
 
+  // Per-engine P&L breakdown
+  const ep=d.engine_pnl||{};
+  if(ep.E1_TAPPED||ep.E2_UNTAPPED||ep.E3_FULL_RANGE){
+    h+=`<div style="padding:4px 0;border-bottom:1px solid var(--brd);margin-bottom:4px"><div style="font-size:8px;color:var(--td);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:3px">Engine Performance</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">`;
+    for(const[eid,e]of Object.entries(ep)){
+      const pCls=e.net_pnl>0?'pos':(e.net_pnl<0?'neg':'zer');
+      const label=eid.replace('E1_TAPPED','E1').replace('E2_UNTAPPED','E2').replace('E3_FULL_RANGE','E3');
+      h+=`<div style="background:var(--s2);padding:3px 5px;border-radius:3px;border:1px solid var(--brd)"><div style="font-size:8px;font-weight:700;color:var(--t2);margin-bottom:1px">${label}</div><div style="display:flex;gap:6px;font-size:8px"><span style="color:var(--td)">Net</span><span class="${pCls}" style="font-weight:700">${e.net_pnl>=0?'+':''}$${e.net_pnl.toFixed(2)}</span></div></div>`;
+    }
+    h+=`</div></div>`;
+  }
+
   // Per-contract-type stats breakdown
   if(trades.length>0){
     const ctStats={};
@@ -483,20 +495,23 @@ function renderTrades(d){
   }
 
   if(!trades.length){
-    h+=`<div class="tlp-empty">${on?'Waiting for convergence retest signals…':'Execution disabled'}</div>`;
+    h+=`<div class="tlp-empty">${on?'Waiting for retest signals…':'Execution disabled'}</div>`;
   } else {
     for(let i=trades.length-1;i>=0;i--){
       const t=trades[i];
       const rc=t.outcome==='win'?'tw':(t.outcome==='loss'?'tls':'tp');
       const oc=t.outcome==='win'?'ow':(t.outcome==='loss'?'ol':(t.outcome==='pending'?'op':'oe'));
       const pCls=t.profit>0?'pos':(t.profit<0?'neg':'zer');
+      const eng=t.engine?t.engine.replace('E1_TAPPED','E1').replace('E2_UNTAPPED','E2').replace('E3_FULL_RANGE','E3'):'—';
       h+=`<div class="tl-row ${rc}">`;
       h+=`<span class="tl-time">${eT(t.epoch)}</span>`;
       h+=`<span class="tl-ref">C${t.cluster_id}M${t.mini_id}</span>`;
+      h+=`<span style="font-size:7px;font-weight:700;color:var(--acc);background:rgba(88,166,255,.1);padding:1px 3px;border-radius:2px">${eng}</span>`;
       h+=`<span class="tl-ct ${bc(t.contract_type)}">${sht(t.contract_type)}</span>`;
       h+=t.barrier!=null?`<span style="color:var(--td)">b:${t.barrier}</span>`:'<span style="color:var(--td)">—</span>';
       h+=`<span class="tl-dig">${t.entry_digit}</span>`;
-      h+=`<span class="tl-str">${Math.round(t.convergence_strength*100)}%</span>`;
+      h+=`<span style="color:var(--td);font-size:7px">$${(t.stake||0).toFixed(2)}</span>`;
+      h+=`<span class="tl-str">${Math.round((t.probability||0)*100)}%</span>`;
       h+=`<span class="tl-out ${oc}">${t.outcome.toUpperCase()}</span>`;
       const ppct=t.payout_pct!=null?`<span style="color:var(--td);font-size:7px">${t.payout_pct>0?'+':''}${t.payout_pct}%</span>`:'';
       h+=`<span class="tl-pnl ${pCls}">${t.profit>=0?'+':''}$${t.profit.toFixed(2)}</span>${ppct}`;
