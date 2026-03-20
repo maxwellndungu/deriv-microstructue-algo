@@ -346,26 +346,26 @@ def run_engine2(untapped_digits: list) -> list:
     freq = Counter(untapped_digits)
     total = len(untapped_digits)
 
-    # Signal 1: Most frequent digit in untapped -> DIFFER
+    # Signal 1: Most frequent digit in untapped -> MATCH (price will fill these gaps)
     most_digit, most_count = freq.most_common(1)[0]
     most_strength = round(most_count / total, 3)
     signals.append({
         "engine": "E2_UNTAPPED",
-        "contract_type": "DIGITDIFF",
+        "contract_type": "DIGITMATCH",
         "barrier": str(most_digit),
-        "signal": f"digit {most_digit} appears {most_count}x in untapped (most frequent)",
+        "signal": f"digit {most_digit} appears {most_count}x in untapped (most frequent — expect fill)",
         "signal_strength": most_strength,
     })
 
-    # Signal 2: Least frequent digit in untapped -> MATCH
+    # Signal 2: Least frequent digit in untapped -> DIFFER (rarely in gaps, unlikely to appear)
     least_digit, least_count = freq.most_common()[-1]
     least_strength = round(1.0 - (least_count / total), 3)
     if least_strength > 0.5:
         signals.append({
             "engine": "E2_UNTAPPED",
-            "contract_type": "DIGITMATCH",
+            "contract_type": "DIGITDIFF",
             "barrier": str(least_digit),
-            "signal": f"digit {least_digit} appears {least_count}x in untapped (least frequent)",
+            "signal": f"digit {least_digit} appears {least_count}x in untapped (least frequent — unlikely to fill)",
             "signal_strength": least_strength,
         })
 
@@ -552,6 +552,7 @@ async def execute_trade(convergence_signal: dict, cluster_id: int, mini_id: int,
         "mini_id": mini_id,
         "contract_type": ct,
         "barrier": barrier,
+        "original_barrier": convergence_signal.get("_original_barrier"),  # Track if barrier was swapped
         "stake": STAKE_AMOUNT,
         "entry_price": price,
         "entry_digit": digit,
@@ -650,7 +651,12 @@ def _is_low_value(ct: str, barrier) -> bool:
 
 
 def should_execute_trade(convergence: list, cluster_id: int, mini_id: int) -> Optional[dict]:
-    """Check if execution conditions are met. Returns the best signal or None."""
+    """Check if execution conditions are met. Returns the best signal or None.
+    
+    Applies barrier swaps for better payouts:
+    - DIGITOVER b:0 → execute as b:1 (better payout, same direction)
+    - DIGITUNDER b:9 → execute as b:8 (better payout, same direction)
+    """
     if not state["execution_enabled"]:
         return None
     if not convergence:
@@ -666,20 +672,34 @@ def should_execute_trade(convergence: list, cluster_id: int, mini_id: int) -> Op
     if not qualifying:
         return None
 
+    # Block weak MATCH/DIFFER signals
+    qualifying = [
+        c for c in qualifying 
+        if not (c["contract_type"] in ["DIGITMATCH", "DIGITDIFF"] and c["avg_strength"] < 0.70)
+    ]
+    if not qualifying:
+        return None
+
     # Check if there is at least one non-low-value signal
     has_strong = any(not _is_low_value(c["contract_type"], c.get("barrier")) for c in qualifying)
 
-    # If only low-value signals (OVER 0 / UNDER 9), apply specific thresholds
+    # If only low-value signals (OVER 0 / UNDER 9), apply specific thresholds and swap barriers
     if not has_strong:
         for c in qualifying:
-            # OVER 0 requires higher threshold (0.85) due to lower profitability
+            # OVER 0 requires higher threshold (0.85), swap to b:1 for better payout
             if c["contract_type"] == "DIGITOVER" and str(c.get("barrier")) == "0":
                 if c["avg_strength"] >= 0.85:
-                    return c
-            # UNDER 9 keeps standard low-value threshold (0.70)
+                    swapped = c.copy()
+                    swapped["barrier"] = "1"
+                    swapped["_original_barrier"] = "0"
+                    return swapped
+            # UNDER 9 keeps standard threshold (0.70), swap to b:8 for better payout
             elif c["contract_type"] == "DIGITUNDER" and str(c.get("barrier")) == "9":
                 if c["avg_strength"] >= LOW_VALUE_STRENGTH_OVERRIDE:
-                    return c
+                    swapped = c.copy()
+                    swapped["barrier"] = "8"
+                    swapped["_original_barrier"] = "9"
+                    return swapped
         return None
 
     # Return the best non-low-value signal, or fallback to first qualifying
@@ -693,9 +713,11 @@ def should_execute_trade(convergence: list, cluster_id: int, mini_id: int) -> Op
 # Retest Monitor
 # ---------------------------------------------------------------------------
 def get_all_sealed_minis() -> list:
-    """Collect all sealed minis from completed clusters + current cluster."""
+    """Collect all sealed minis from last 30 clusters + current cluster."""
     sealed = []
-    for cl in state["clusters"]:
+    # Only check last 30 clusters (30 minutes of history)
+    recent_clusters = state["clusters"][-30:] if len(state["clusters"]) > 30 else state["clusters"]
+    for cl in recent_clusters:
         for m in cl["minis"]:
             sealed.append({
                 "cluster_id": cl["cluster_id"],
@@ -775,16 +797,32 @@ def check_retests(epoch: int, quote: float, digit: int):
                 }
                 state["retest_events"].append(event)
                 state["retest_total"] += 1
+                
+                # Trim retest_events to last 500 entries
+                if len(state["retest_events"]) > 500:
+                    state["retest_events"] = state["retest_events"][-500:]
 
                 # Execution trigger
                 best_signal = should_execute_trade(
                     sm["convergence"], sm["cluster_id"], sm["mini_id"]
                 )
-                if best_signal and conv_match:
-                    asyncio.ensure_future(execute_trade(
-                        best_signal, sm["cluster_id"], sm["mini_id"],
-                        quote, digit, epoch
-                    ))
+                if best_signal:
+                    # Evaluate conv_match against the ACTUAL signal that will be traded (after barrier swap)
+                    ct = best_signal["contract_type"]
+                    b = best_signal.get("barrier")
+                    conv_match_actual = (
+                        (ct == "DIGITMATCH" and b == str(digit)) or
+                        (ct == "DIGITDIFF" and b != str(digit)) or
+                        (ct == "DIGITOVER" and b is not None and digit > int(b)) or
+                        (ct == "DIGITUNDER" and b is not None and digit < int(b)) or
+                        (ct == "DIGITEVEN" and digit % 2 == 0) or
+                        (ct == "DIGITODD" and digit % 2 != 0)
+                    )
+                    if conv_match_actual:
+                        asyncio.ensure_future(execute_trade(
+                            best_signal, sm["cluster_id"], sm["mini_id"],
+                            quote, digit, epoch
+                        ))
 
     state["active_retests"] = active
 
@@ -829,6 +867,13 @@ def process_tick(epoch: int, quote: float):
             state["current_cluster_id"] += 1
             state["current_mini_id"] = 1
             state["cluster_epoch_start"] = None
+            
+            # Clean up traded_minis dict - only keep last 30 clusters
+            current_cid = state["current_cluster_id"]
+            state["traded_minis"] = {
+                k: v for k, v in state["traded_minis"].items()
+                if int(k.split('C')[1].split('M')[0]) >= current_cid - 30
+            }
         else:
             state["current_mini_id"] += 1
 
@@ -903,7 +948,13 @@ async def deriv_feed():
     while True:
         try:
             print(f"[DERIV_FEED] Connecting to Deriv WebSocket...")
-            async with websockets.connect(DERIV_WS_URL) as ws:
+            # Add ping_interval and ping_timeout for keepalive during laptop sleep
+            async with websockets.connect(
+                DERIV_WS_URL,
+                ping_interval=20,  # Send ping every 20 seconds
+                ping_timeout=60,   # Wait up to 60 seconds for pong
+                close_timeout=10
+            ) as ws:
                 state["connected"] = True
                 deriv_ws_ref = ws
                 print(f"[DERIV_FEED] Connected!")
@@ -924,7 +975,9 @@ async def deriv_feed():
                 # Subscribe to ticks
                 await ws.send(json.dumps({"ticks": SYMBOL, "subscribe": 1}))
 
+                last_tick_time = asyncio.get_event_loop().time()
                 async for message in ws:
+                    last_tick_time = asyncio.get_event_loop().time()  # Update on every message
                     data = json.loads(message)
                     if "tick" in data:
                         tick = data["tick"]
@@ -945,10 +998,8 @@ async def deriv_feed():
                     elif "proposal_open_contract" in data:
                         handle_proposal_open_contract(data)
 
-        except Exception as e:
-            print(f"[DERIV_FEED] Connection error: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
+        except websockets.exceptions.ConnectionClosedError as e:
+            print(f"[DERIV_FEED] Connection closed: {e}")
             state["connected"] = False
             deriv_ws_ref = None
             # If reconnected mid-candle, discard partial
@@ -960,6 +1011,18 @@ async def deriv_feed():
                 state["ticks_in_current_cluster"] = 0
             print(f"[DERIV_FEED] Retrying in 3 seconds...")
             await asyncio.sleep(3)
+        except Exception as e:
+            print(f"[DERIV_FEED] Unexpected error: {e}")
+            state["connected"] = False
+            deriv_ws_ref = None
+            if state["synced"]:
+                state["ticks_in_current_mini"] = []
+                state["sync_waiting"] = True
+                state["synced"] = False
+                state["completed_minis_in_cluster"] = []
+                state["ticks_in_current_cluster"] = 0
+            print(f"[DERIV_FEED] Retrying in 5 seconds...")
+            await asyncio.sleep(5)
 
 # ---------------------------------------------------------------------------
 # UI broadcast
@@ -974,8 +1037,10 @@ async def broadcast_loop():
                     await client.send_text(payload)
                 except Exception:
                     disconnected.append(client)
+            # Safe removal - only remove if still in list
             for c in disconnected:
-                ui_clients.remove(c)
+                if c in ui_clients:
+                    ui_clients.remove(c)
         await asyncio.sleep(1)
 
 # ---------------------------------------------------------------------------
