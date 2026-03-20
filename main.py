@@ -1051,7 +1051,8 @@ async def lifespan(application):
     global buy_response_queue
     print("[APP] Starting lifespan event...")
     buy_response_queue = asyncio.Queue()
-    load_trades_from_disk()
+    # Start fresh each time - don't load previous trades
+    print("[APP] Starting with clean slate (no trades loaded)")
     print("[APP] Creating deriv_feed task...")
     asyncio.create_task(deriv_feed())
     print("[APP] Creating broadcast_loop task...")
