@@ -101,7 +101,7 @@ def calculate_stake(contract_type: str, barrier, engine_id: str) -> float:
 
 def get_active_trade_count() -> int:
     """Count trades currently pending settlement."""
-    return sum(1 for t in state["trades"] if t["outcome"] == "pending")
+    return state["active_trade_count"]
 
 
 def get_adjusted_stake(base_stake: float) -> float:
@@ -480,7 +480,7 @@ def load_trades_from_disk():
 
 # Global reference to Deriv WS for trade execution
 deriv_ws_ref = None
-buy_response_queue: asyncio.Queue = None  # initialized in lifespan
+pending_engine_trades: dict = {}  # contract_id -> trade_record mapping
 
 # Browser WebSocket clients
 ui_clients: list[WebSocket] = []
@@ -546,39 +546,17 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     state["trade_stats"]["total"] += 1
 
     try:
-        # Send buy — response will be routed via the main message loop
+        # Send buy request and return immediately
         await deriv_ws_ref.send(json.dumps(buy_req))
-        print(f"[EXEC] Buy sent: {ct} b:{barrier}")
+        print(f"[EXEC] Buy sent: {engine_id} {ct} b:{barrier}")
+        
+        # Store trade record temporarily - will be matched by contract_id when buy response arrives
+        # Use a temporary ID based on trade record index
+        temp_id = f"temp_{len(state['trades']) - 1}_{epoch}"
+        pending_engine_trades[temp_id] = trade_record
 
-        # Wait for buy response on the queue (routed by deriv_feed)
-        data = await asyncio.wait_for(buy_response_queue.get(), timeout=10)
-
-        if "error" in data:
-            print(f"[EXEC] Buy error: {data['error']['message']}")
-            trade_record["outcome"] = "error"
-            trade_record["profit"] = 0.0
-            return
-
-        if "buy" in data:
-            buy = data["buy"]
-            trade_record["contract_id"] = buy.get("contract_id")
-            trade_record["buy_price"] = buy.get("buy_price")
-            print(f"[EXEC] Trade placed: {ct} b:{barrier} contract:{trade_record['contract_id']}")
-
-            # Subscribe to settlement — just send, response handled by main loop
-            if trade_record["contract_id"]:
-                sub_req = {
-                    "proposal_open_contract": 1,
-                    "contract_id": trade_record["contract_id"],
-                    "subscribe": 1,
-                }
-                await deriv_ws_ref.send(json.dumps(sub_req))
-
-    except asyncio.TimeoutError:
-        print("[EXEC] Buy request timed out")
-        trade_record["outcome"] = "timeout"
     except Exception as e:
-        print(f"[EXEC] Trade error: {e}")
+        print(f"[EXEC] Trade send error: {e}")
         trade_record["outcome"] = "error"
 
 
@@ -619,6 +597,9 @@ def handle_proposal_open_contract(data: dict):
                 else:
                     ep["total_loss"] = round(ep["total_loss"] + abs(profit), 2)
                 ep["net_pnl"] = round(ep["total_profit"] - ep["total_loss"], 2)
+            
+            # Decrement active trade count
+            state["active_trade_count"] = max(0, state["active_trade_count"] - 1)
             
             print(f"[EXEC] Settled: {engine_id} {trade['contract_type']} b:{trade['barrier']} -> {trade['outcome']} ${profit:.2f}")
             save_trades_to_disk()
@@ -722,6 +703,9 @@ def check_retests(epoch: int, quote: float, digit: int):
                     
                     # Track trades per mini per engine
                     state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
+                    
+                    # Increment active trade count synchronously for exposure control
+                    state["active_trade_count"] += 1
                     
                     asyncio.ensure_future(
                         execute_engine_trade(engine_id, best, stake, prob, sm["cluster_id"], sm["mini_id"], quote, digit, epoch)
@@ -895,9 +879,40 @@ async def deriv_feed():
 
                         process_tick(epoch, quote)
 
-                    # Route buy responses to the execution queue
-                    elif "buy" in data or ("error" in data and data.get("msg_type") == "buy"):
-                        await buy_response_queue.put(data)
+                    # Handle buy responses - match to pending trades by contract_id
+                    elif "buy" in data:
+                        buy = data["buy"]
+                        contract_id = buy.get("contract_id")
+                        buy_price = buy.get("buy_price")
+                        
+                        # Find the pending trade and update it
+                        for temp_id, trade_record in list(pending_engine_trades.items()):
+                            if trade_record["contract_id"] is None:
+                                trade_record["contract_id"] = contract_id
+                                trade_record["buy_price"] = buy_price
+                                print(f"[EXEC] Trade placed: {trade_record['engine']} {trade_record['contract_type']} b:{trade_record['barrier']} contract:{contract_id}")
+                                
+                                # Subscribe to settlement
+                                if contract_id:
+                                    sub_req = {
+                                        "proposal_open_contract": 1,
+                                        "contract_id": contract_id,
+                                        "subscribe": 1,
+                                    }
+                                    await ws.send(json.dumps(sub_req))
+                                
+                                # Remove from pending
+                                del pending_engine_trades[temp_id]
+                                break
+                    
+                    elif "error" in data and data.get("msg_type") == "buy":
+                        print(f"[EXEC] Buy error: {data['error']['message']}")
+                        # Mark the first pending trade as error
+                        for temp_id, trade_record in list(pending_engine_trades.items()):
+                            if trade_record["contract_id"] is None:
+                                trade_record["outcome"] = "error"
+                                del pending_engine_trades[temp_id]
+                                break
 
                     # Handle trade settlement updates
                     elif "proposal_open_contract" in data:
@@ -953,9 +968,7 @@ async def broadcast_loop():
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(application):
-    global buy_response_queue
     print("[APP] Starting lifespan event...")
-    buy_response_queue = asyncio.Queue()
     # Start fresh each time - don't load previous trades
     print("[APP] Starting with clean slate (no trades loaded)")
     print("[APP] Creating deriv_feed task...")
