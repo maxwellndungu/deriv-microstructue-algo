@@ -517,10 +517,15 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     net = state["engine_pnl"][engine_id]["net_pnl"]
     pnl_state = "positive" if net > 0 else ("negative" if net < 0 else "neutral")
 
+    # Generate unique request ID for matching buy response
+    import time
+    req_id = int(time.time() * 1000) % 2147483647
+
     # Build buy request
     buy_req = {
         "buy": 1,
         "price": stake,
+        "req_id": req_id,
         "parameters": {
             "contract_type": ct,
             "symbol": SYMBOL,
@@ -549,6 +554,7 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
         "entry_price": price,
         "entry_digit": digit,
         "contract_id": None,
+        "req_id": req_id,
         "outcome": "pending",
         "profit": 0.0,
         "buy_price": None,
@@ -886,15 +892,16 @@ async def engine_feed(engine_id: str):
                     data = json.loads(message)
                     
                     if "buy" in data:
-                        # Match to the most recent pending trade for this engine
+                        # Match by req_id - globally unique, no engine check needed
                         contract_id = data["buy"].get("contract_id")
                         buy_price = data["buy"].get("buy_price")
+                        incoming_req_id = data.get("req_id")
                         
                         for trade in reversed(state["trades"]):
-                            if trade["engine"] == engine_id and trade["contract_id"] is None:
+                            if trade.get("req_id") == incoming_req_id:
                                 trade["contract_id"] = contract_id
                                 trade["buy_price"] = buy_price
-                                print(f"[BUY_RESPONSE] contract_id={contract_id} | engine={engine_id} | {trade['contract_type']} b:{trade['barrier']} | stake=${trade['stake']:.2f} | buy_price=${buy_price:.2f}")
+                                print(f"[BUY_RESPONSE] req_id={incoming_req_id} contract_id={contract_id} | engine={trade['engine']} | {trade['contract_type']} b:{trade['barrier']} | stake=${trade['stake']:.2f} | buy_price=${buy_price:.2f}")
                                 
                                 # Subscribe to settlement
                                 if contract_id:
@@ -1066,7 +1073,7 @@ async def serve_ui():
 
 @app.get("/export/trades")
 async def export_trades():
-    cols = ["id", "epoch", "cluster_id", "mini_id", "engine", "contract_type", "barrier",
+    cols = ["id", "req_id", "epoch", "cluster_id", "mini_id", "engine", "contract_type", "barrier",
             "probability", "stake", "pnl_state", "signal_strength", "entry_price",
             "entry_digit", "outcome", "profit", "payout"]
     buf = io.StringIO()
