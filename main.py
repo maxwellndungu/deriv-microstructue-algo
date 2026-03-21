@@ -39,7 +39,7 @@ DECIMAL_PLACES = 2
 TICKS_PER_MINI = 10
 MINIS_PER_CLUSTER = 6
 TICKS_PER_CLUSTER = TICKS_PER_MINI * MINIS_PER_CLUSTER
-MAX_TRADES_PER_RETEST = 1
+MAX_TRADES_PER_RETEST = 2  # Allow both MATCH and DIFFER per engine
 TRADES_FILE = "trades.json"
 
 # Stake configuration
@@ -716,22 +716,22 @@ def check_retests(epoch: int, quote: float, digit: int):
                     if state["traded_minis"].get(mini_key, 0) >= MAX_TRADES_PER_RETEST:
                         continue
                     
-                    # Take the strongest signal from this engine
-                    best = max(signals, key=lambda s: s["signal_strength"])
-                    prob  = calculate_probability(best["contract_type"], best.get("barrier"))
-                    stake = calculate_stake(best["contract_type"], best.get("barrier"), engine_id)
-                    if best["contract_type"] not in ("DIGITMATCH", "DIGITDIFF"):
-                        stake = get_adjusted_stake(stake)
+                    # Fire ALL signals from this engine (both MATCH and DIFFER)
+                    for signal in signals:
+                        prob  = calculate_probability(signal["contract_type"], signal.get("barrier"))
+                        stake = calculate_stake(signal["contract_type"], signal.get("barrier"), engine_id)
+                        if signal["contract_type"] not in ("DIGITMATCH", "DIGITDIFF"):
+                            stake = get_adjusted_stake(stake)
+                        
+                        # Increment active trade count synchronously for exposure control
+                        state["active_trade_count"] += 1
+                        
+                        asyncio.ensure_future(
+                            execute_engine_trade(engine_id, signal, stake, prob, sm["cluster_id"], sm["mini_id"], quote, digit, epoch)
+                        )
                     
-                    # Track trades per mini per engine
+                    # Track trades per mini per engine (increment once after firing all signals)
                     state["traded_minis"][mini_key] = state["traded_minis"].get(mini_key, 0) + 1
-                    
-                    # Increment active trade count synchronously for exposure control
-                    state["active_trade_count"] += 1
-                    
-                    asyncio.ensure_future(
-                        execute_engine_trade(engine_id, best, stake, prob, sm["cluster_id"], sm["mini_id"], quote, digit, epoch)
-                    )
 
     state["active_retests"] = active
 
