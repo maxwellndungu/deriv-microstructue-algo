@@ -1078,9 +1078,9 @@ async def serve_ui():
 
 @app.get("/export/trades")
 async def export_trades():
-    cols = ["id", "req_id", "epoch", "cluster_id", "mini_id", "engine", "contract_type", "barrier",
+    cols = ["id", "req_id", "contract_id", "epoch", "cluster_id", "mini_id", "engine", "contract_type", "barrier",
             "probability", "stake", "pnl_state", "signal_strength", "entry_price",
-            "entry_digit", "outcome", "profit", "payout"]
+            "entry_digit", "outcome", "outcome_digit", "profit", "payout"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     writer.writeheader()
