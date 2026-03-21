@@ -29,11 +29,12 @@ SYMBOL = "1HZ10V"
 API_TOKEN_E1 = "iGwTSVES9MsY9bv"
 API_TOKEN_E2 = "xh7mAW7JGnldZCM"
 API_TOKEN_E3 = "ew4g6lCQ3SNdYNI"
+API_TOKEN_FEED = "3aV6havDHnXtq2f"
 
 ENGINE_TOKENS = {
-    "E1_TAPPED":     API_TOKEN_E1,
-    "E2_UNTAPPED":   API_TOKEN_E2,
-    "E3_FULL_RANGE": API_TOKEN_E3,
+    "E1_TAPPED":     "iGwTSVES9MsY9bv",
+    "E2_UNTAPPED":   "xh7mAW7JGnldZCM",
+    "E3_FULL_RANGE": "ew4g6lCQ3SNdYNI",
 }
 DECIMAL_PLACES = 2
 TICKS_PER_MINI = 10
@@ -499,6 +500,9 @@ engine_ws = {
 # Main tick feed WebSocket reference
 deriv_ws_ref = None
 
+# Request ID counter for unique buy request matching
+_req_id_counter = 0
+
 # Browser WebSocket clients
 ui_clients: list[WebSocket] = []
 
@@ -518,8 +522,9 @@ async def execute_engine_trade(engine_id: str, signal: dict, stake: float,
     pnl_state = "positive" if net > 0 else ("negative" if net < 0 else "neutral")
 
     # Generate unique request ID for matching buy response
-    import time
-    req_id = int(time.time() * 1000) % 2147483647
+    global _req_id_counter
+    _req_id_counter += 1
+    req_id = _req_id_counter
 
     # Build buy request
     buy_req = {
@@ -955,7 +960,7 @@ async def deriv_feed():
 
                 # Authorize
                 print(f"[DERIV_FEED] Authorizing with token...")
-                await ws.send(json.dumps({"authorize": DERIV_TOKEN}))
+                await ws.send(json.dumps({"authorize": API_TOKEN_FEED}))
                 auth_resp = await ws.recv()
                 auth_data = json.loads(auth_resp)
                 if "error" in auth_data:
