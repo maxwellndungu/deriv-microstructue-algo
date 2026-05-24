@@ -1,10 +1,21 @@
 """
 Paper-trade the NHB bot against the recorded 24-hour V100(1s) tick stream
 in research/ticks_v100_1s.json. We use the same Strategy + Observatory
-code from main.py — no shortcuts — and resolve each "buy" against the
-*next* tick (1-tick contract).
+code from main.py — no shortcuts.
 
-Run:  python3 paper_trade.py [path_to_ticks.json]
+Contract resolution mirrors Deriv's official mechanics
+(https://deriv.com/terms-and-conditions/trading-terms §2.2.3.1):
+
+    decision tick : i
+    entry  spot   : i + 1   ("next tick after our servers process the contract")
+    exit   spot   : i + 1 + DURATION    (for tick-duration contracts)
+
+For the default 1-tick contract:  decision=i  →  exit=i+2  (LAG_EXIT=2).
+
+The CLI flag --lag overrides LAG_EXIT for what-if checks (1 reproduces the
+old, incorrect simulation).
+
+Run:  python3 paper_trade.py [path_to_ticks.json] [--lag N]
 """
 import json
 import math
@@ -28,7 +39,11 @@ main.CFG["max_trades_per_minute"] = 60 # don't rate-limit in paper
 main.CFG["daily_loss_limit_usd"] = 1_000_000
 main.CFG["halt_on_loss_streak"]  = 1_000
 
-PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "ticks_v100_1s.json"
+PATH = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else HERE / "ticks_v100_1s.json"
+LAG_EXIT = 2                                          # decision i → exit i+LAG_EXIT
+for a in sys.argv[1:]:
+    if a.startswith("--lag"):
+        LAG_EXIT = int(a.split("=", 1)[1]) if "=" in a else int(sys.argv[sys.argv.index(a)+1])
 if not PATH.exists() and PATH.suffix != ".gz":
     alt = PATH.with_suffix(PATH.suffix + ".gz")
     if alt.exists():
@@ -38,7 +53,7 @@ if PATH.suffix == ".gz":
     ticks = json.loads(gzip.decompress(PATH.read_bytes()))
 else:
     ticks = json.loads(PATH.read_text())
-print(f"Paper-trading {len(ticks)} ticks from {PATH.name}")
+print(f"Paper-trading {len(ticks)} ticks from {PATH.name}  (LAG_EXIT={LAG_EXIT})")
 
 obs = main.Observatory()
 strat = main.Strategy(main.CFG)
@@ -62,21 +77,24 @@ for i, t in enumerate(ticks):
     decision = strat.decide(obs, epoch)
     if decision is None:
         continue
-    # Resolve at next tick
-    if i + 1 >= len(ticks):
+    # Resolve at the *exit* tick (per Deriv: decision i → entry i+1 → exit i+1+duration).
+    # For 1-tick duration contracts that's i+2 (LAG_EXIT=2).
+    if i + LAG_EXIT >= len(ticks):
         break
-    next_quote = float(ticks[i + 1][1])
-    next_digit = main.last_digit(next_quote)
+    exit_quote = float(ticks[i + LAG_EXIT][1])
+    exit_digit = main.last_digit(exit_quote)
+    # `entry_digit` here is the digit at the decision tick, which is what the bot
+    # passes as the DIGITDIFF barrier when calling Deriv's buy API.
     entry_digit = main.last_digit(quote)
     key = decision["key"]
     stake = decision["stake"]
 
     if key == "DIGITDIFF":
-        win = next_digit != entry_digit
+        win = exit_digit != entry_digit
     elif key == "DIGITOVER:0":
-        win = next_digit > 0
+        win = exit_digit > 0
     elif key == "DIGITUNDER:9":
-        win = next_digit < 9
+        win = exit_digit < 9
     else:
         win = False
 

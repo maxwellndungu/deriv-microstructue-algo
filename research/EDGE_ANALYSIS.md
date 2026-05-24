@@ -29,6 +29,16 @@
    Over 0 / Under 9), use fractional Kelly (which **prescribes zero stake**
    when EV ≤ 0), and have a hard daily-loss kill-switch. This is the bot
    I built.
+5. **Settlement-lag correction (§6).** The first version of `paper_trade.py`
+   resolved each trade against tick `i+1`. Per Deriv's official trading
+   terms a 1-tick Digital Option settles on tick `i+2` (entry = next tick
+   after server processes, exit = 1 tick later). The corrected lag-2
+   simulation (plus a full re-run of the conditional sweep at lags 1, 2, 3,
+   5, 10) gives the **same** no-edge verdict — the digit stream is i.i.d.
+   at every horizon tested. The live bot path in `main.py` already
+   submitted DIGITDIFF with `barrier = OBS.last_tick["digit"]` and let the
+   Deriv server resolve at exit spot, so only the offline backtests needed
+   patching.
 
 The rest of this document walks the reasoning so you can argue with it.
 
@@ -334,5 +344,124 @@ All raw artefacts of this analysis live alongside this document in
   small-sample power; output `final_v100.txt`.
 - `test_existing_bot.py` — head-to-head statistical test of the 60-trade
   dataset.
+- `lag_correction.py` / `multilag.py` — added in §6: re-runs every
+  conditional test at the *correct* lag-2 (and 3, 5, 10) settlement.
+- `paper_trade.py --lag=N` — paper trade with configurable lag (default
+  2; matches actual Deriv contract resolution).
 
 Re-run anything to regenerate the numbers above.
+
+---
+
+## 6. Addendum — contract-settlement lag correction
+
+> *"By design Deriv contracts process after N ticks — for a 1-tick contract
+> the next tick isn't what determines win/loss, it's the second next tick."*
+
+This is **correct**, and a fair criticism of how the original paper-trade
+script settled trades. Per Deriv's official trading terms
+([§2.2.3.1](https://deriv.com/terms-and-conditions/trading-terms)):
+
+> *"For Digital Options... the entry spot is defined as the next tick after
+> our servers process the contract."*
+
+So for a 1-tick DIGITDIFF contract bought at decision tick `i`:
+
+| spot        | tick index | what's it for                                  |
+|-------------|-----------:|------------------------------------------------|
+| decision    | `i`        | last tick the bot saw before buying            |
+| entry spot  | `i + 1`    | "next tick after our servers process"          |
+| exit spot   | `i + 2`    | 1 tick after entry — the digit that settles    |
+
+The barrier you submit on buy (e.g. `barrier = digit(i)` for "differs from
+current") is matched at exit, not at entry. That makes settlement a
+**lag-2** event from the decision tick — not lag-1 like the original
+`paper_trade.py` simulated.
+
+### Does this overturn the no-edge conclusion?
+
+No. The lag correction is a real methodological fix but the underlying
+data is genuinely i.i.d. at every reasonable lag, so the verdict stands.
+Re-running the suite with `LAG_EXIT = 2` (and 3, 5, 10) on the same 86,383
+ticks:
+
+```
+ lag |  Over0 p   Differs p   Over4 p   Over7 p   Matches p
+   1 | 0.89900   0.90057     0.49980   0.19885   0.09943
+   2 | 0.89899   0.90088     0.49981   0.19885   0.09912
+   3 | 0.89899   0.90022     0.49980   0.19884   0.09978
+   5 | 0.89899   0.90106     0.49980   0.19884   0.09894
+  10 | 0.89898   0.89980     0.49981   0.19884   0.10020
+  BE | 0.91241   0.91241     0.51203   0.21200   0.11199
+```
+
+Every contract's marginal win rate is below break-even at every lag.
+
+Chi-square independence of `(d_t, d_{t+lag})` for `lag ∈ {1, 2, 3, 5, 10, 20, 50}`:
+**p-values 0.48, 0.59, 0.93, 0.49, 0.49, 0.95, 0.74**. Cannot reject
+independence at any horizon.
+
+Best `(d_{-1}, d_0)` conditioning cell for Over 0 across lags, 99.9 %
+Wilson lower bound vs BE = 0.9124:
+
+```
+ lag |   best cell     best p   CI99.9_lo   exceeds BE?
+   1 |   7,4          0.9236    0.8877        no
+   2 |   5,0          0.9287    0.8940        no
+   3 |   6,6          0.9194    0.8849        no
+   5 |   0,6          0.9246    0.8894        no
+  10 |   6,4          0.9221    0.8865        no
+```
+
+The "best" cell rotates as lag changes (noise dominates point estimates)
+but **no cell at any lag has a conservative lower bound above break-even**.
+
+Bonferroni-aware sweep (single digit, pair, triplet × hour × vol × price-mod
+× rolling-mode × pairwise interactions, on lag-2 settlement): **zero
+flagged conditions**.
+
+### Re-running the NHB bot with corrected lag-2 paper trade
+
+```
+Trades placed:    11,257       Win rate: 0.8995       RoS: −1.41%
+Per contract — all three:   SPRT = no_edge
+Mode time:        observe 74,939 · probe 11,444 · exploit 0
+```
+
+Same qualitative outcome as before: the bot probes, SPRT-rejects each
+contract, stays in OBSERVE. The corrected (lag-2) numbers are within ±0.2 %
+of the buggy (lag-1) numbers — because i.i.d. uniform digits give the same
+expected win rate regardless of which future tick you settle on.
+
+### What was actually wrong vs what was actually right
+
+- **Wrong**: `research/paper_trade.py` simulated lag-1 settlement
+  (`win = digits[i+1] != digits[i]`). Now patched — see `--lag` flag.
+- **Wrong**: `research/audit.py` `T13`/`T14` and `research/edge_search.py`
+  conditioned on `digits[:-1] → digits[1:]` (lag-1). The new
+  `research/lag_correction.py` and `research/multilag.py` re-do those tests
+  at the correct lag-2 (and 3, 5, 10).
+- **Right**: `main.py:_send_buy` submits DIGITDIFF with
+  `barrier = OBS.last_tick["digit"]` (the decision-tick digit) and lets the
+  Deriv server resolve the contract at exit spot. The live path was always
+  correctly lag-aware; only the offline backtests had the wrong offset.
+
+### Why the conclusion is structurally robust
+
+For an i.i.d. uniform digit stream, `P(d_{t+k} = x) = 0.1` for every `k ≥ 1`.
+The marginal win rate of Over 0 / Differs / Under 9 is therefore exactly
+0.90, no matter which future tick you bet on. The 1.36 % house edge is
+baked into the payout ratio (109.6 %), not into any particular tick
+horizon. Switching from lag-1 to lag-2 can only matter if there's serial
+dependence at one lag and not the other — and the chi-square independence
+test on `(d_t, d_{t+2})` has p = 0.59. There is no lag-2 structure to find.
+
+Reproducing files:
+
+- `research/lag_correction.py` — re-runs Sections 2/3/14 at lag-2.
+- `research/multilag.py`       — sweeps lags 1/2/3/5/10 + Bonferroni.
+- `research/paper_trade.py --lag=2` — corrected paper-trade run.
+
+---
+
+

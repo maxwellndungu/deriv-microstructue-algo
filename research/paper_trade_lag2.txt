@@ -1,0 +1,17 @@
+Paper-trading 86383 ticks from ticks_v100_1s.json.gz  (LAG_EXIT=2)
+
+=== RESULTS ===
+Ticks consumed:   86383
+Trades placed:    11257
+Wins / Losses:    10126 / 1131
+Win rate:         0.8995
+Total stake:      $3939.95
+Total P&L:        $-55.62
+Return on stake:  -1.412%
+Mode time spent:  {'observe': 74939, 'probe': 11444, 'exploit': 0, 'halt': 0}
+First entered EXPLOIT at tick: None
+
+Per-contract:
+  DIGITDIFF: n=3752  p̂=0.9011  CI99=[0.8878,0.9130]  BE=0.9124  P&L=$-16.25  SPRT=no_edge
+  DIGITOVER:0: n=3752  p̂=0.8950  CI99=[0.8814,0.9072]  BE=0.9124  P&L=$-25.07  SPRT=no_edge
+  DIGITUNDER:9: n=3753  p̂=0.9025  CI99=[0.8893,0.9143]  BE=0.9124  P&L=$-14.30  SPRT=no_edge
