@@ -1,0 +1,28 @@
+
+=== EDGE SEARCH on ticks_v100_1s.json  (Z=3.291 = 99.9% Wilson lower) ===
+Sample size: m = 86382 1-tick windows
+Total flagged conditions (lower CI > breakeven):  0
+
+=== ANTI-EDGE: worst cells (largest gap below break-even) ===
+Bottom 10 (most below breakeven):
+  hour=13   Even     p=0.4736 BE=0.5120 gap=-0.0384 n=3600
+  vol_bucket=3    Over4    p=0.4769 BE=0.5120 gap=-0.0351 n=2080
+  hour=15   Over4    p=0.4792 BE=0.5120 gap=-0.0329 n=3600
+  vol_bucket=3    Over1    p=0.7812 BE=0.8117 gap=-0.0304 n=2080
+  vol_bucket=1    Over4    p=0.4819 BE=0.5120 gap=-0.0301 n=3175
+  hour=16   Over0    p=0.8842 BE=0.9124 gap=-0.0282 n=3600
+  hour=0    Even     p=0.4839 BE=0.5120 gap=-0.0281 n=3600
+  hour=16   Over1    p=0.7836 BE=0.8117 gap=-0.0281 n=3600
+  hour=12   Odd      p=0.4844 BE=0.5120 gap=-0.0276 n=3600
+  hour=20   Odd      p=0.4869 BE=0.5120 gap=-0.0251 n=3600
+Top 10 (best above breakeven, even if not stat-sig):
+  hour=11   Over0    p=0.9139 BE=0.9124 gap=+0.0015 n=3600
+  vol_bucket=1    Under8   p=0.8148 BE=0.8117 gap=+0.0031 n=3175
+  hour=12   Even     p=0.5156 BE=0.5120 gap=+0.0035 n=3600
+  hour=0    Odd      p=0.5161 BE=0.5120 gap=+0.0041 n=3600
+  vol_bucket=1    Under5   p=0.5181 BE=0.5120 gap=+0.0061 n=3175
+  hour=4    Over1    p=0.8178 BE=0.8117 gap=+0.0061 n=3600
+  hour=11   Over1    p=0.8200 BE=0.8117 gap=+0.0083 n=3600
+  hour=15   Under5   p=0.5208 BE=0.5120 gap=+0.0088 n=3600
+  vol_bucket=3    Under5   p=0.5231 BE=0.5120 gap=+0.0110 n=2080
+  hour=13   Odd      p=0.5264 BE=0.5120 gap=+0.0144 n=3600
