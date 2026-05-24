@@ -1,5 +1,7 @@
-# Runtime data files
+# Runtime data files (per-deployment state)
 trades.json
+config.json
+*.bak
 
 # Python
 __pycache__/

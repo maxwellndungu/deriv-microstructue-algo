@@ -1,0 +1,48 @@
+=== (A) ROUND-NUMBER MAGNET CHECK ===
+  chi-square last-2-cents uniform: 105.61  p=0.3061
+  most under-represented cent values: [21, 77, 29, 18, 32]
+  most over-represented cent values: [83, 61, 36, 86, 39]
+  freq cents==0: 0.0102  (expected 0.0100)
+  freq cents==50: 0.0104  (expected 0.0100)
+  freq cents ending in 0: 0.1010  (expected 0.1000)
+
+=== (B) DRIFT CHECK ===
+  mean log-return per tick: 6.539308e-07  stderr=6.051826e-07  Z=+1.08
+  per-day drift (86400 ticks): 0.056500
+
+=== (C) STRONGEST NAIVE CELLS (sorted by empirical Sharpe per cell) ===
+Top 10 by Sharpe (raw — DO NOT believe naive ranking — read note below):
+  sharpe=+2.65  feat=d_{-2}d_{-1}=v=12    ctr=Over4    p̂=0.5566  BE=0.5120  n=875
+  sharpe=+2.21  feat=d_{-2}d_{-1}=v=82    ctr=Odd      p̂=0.5499  BE=0.5120  n=842
+  sharpe=+2.17  feat=d_{-2}d_{-1}=v=10    ctr=Odd      p̂=0.5488  BE=0.5120  n=860
+  sharpe=+1.98  feat=d_{-2}d_{-1}=v=22    ctr=Differs  p̂=0.9304  BE=0.9124  n=790
+  sharpe=+1.88  feat=d_{-2}d_{-1}=v=8     ctr=Under8   p̂=0.8350  BE=0.8117  n=897
+  sharpe=+1.77  feat=d_{-2}d_{-1}=v=36    ctr=Odd      p̂=0.5420  BE=0.5120  n=869
+  sharpe=+1.73  feat=d_{-2}d_{-1}=v=66    ctr=Matches  p̂=0.1312  BE=0.1120  n=930
+  sharpe=+1.73  feat=d_{-2}d_{-1}=v=75    ctr=Over1    p̂=0.8337  BE=0.8117  n=854
+  sharpe=+1.69  feat=d_{-2}d_{-1}=v=62    ctr=Even     p̂=0.5400  BE=0.5120  n=913
+  sharpe=+1.66  feat=d_{-2}d_{-1}=v=48    ctr=Even     p̂=0.5404  BE=0.5120  n=855
+Bottom 10:
+  sharpe=-4.79  feat=d_{-1}=v=8     ctr=Matches  p̂=0.0967  BE=0.1120  n=8573
+  sharpe=-4.95  feat=d_{-1}=v=6     ctr=Over7    p̂=0.1913  BE=0.2120  n=8805
+  sharpe=-4.96  feat=d_{-1}=v=6     ctr=Over0    p̂=0.8963  BE=0.9124  n=8805
+  sharpe=-4.97  feat=d_{-1}=v=4     ctr=Under2   p̂=0.1910  BE=0.2120  n=8659
+  sharpe=-5.04  feat=d_{-1}=v=0     ctr=Under9   p̂=0.8959  BE=0.9124  n=8725
+  sharpe=-5.09  feat=d_{-1}=v=8     ctr=Over0    p̂=0.8956  BE=0.9124  n=8573
+  sharpe=-5.15  feat=d_{-1}=v=9     ctr=Over0    p̂=0.8954  BE=0.9124  n=8605
+  sharpe=-5.50  feat=d_{-1}=v=6     ctr=Differs  p̂=0.8944  BE=0.9124  n=8805
+  sharpe=-5.60  feat=d_{-1}=v=4     ctr=Differs  p̂=0.8939  BE=0.9124  n=8659
+  sharpe=-6.15  feat=d_{-1}=v=2     ctr=Matches  p̂=0.0927  BE=0.1120  n=8524
+
+  Total cells tested: 1320
+  Expected number of cells with Sharpe > 2 (one-sided p<0.025) under H0: 33.0
+  Observed cells with Sharpe > +2: 3
+  Observed cells with Sharpe < -2: 252
+  (under H0=no edge, expect ~33 on each side)
+
+=== (D) IS THE 56/59 WIN RATE FROM 60 TRADES EVIDENCE OF EDGE? ===
+  Assume true win rate equals break-even 0.9124 (no edge).
+  Probability of 56 or more wins out of 59 trades:
+  P(W >= 56) = 0.2292  (i.e. ~1 in 4.4)
+  At nominal Bernoulli p=0.90: P(W >= 56) = 0.1463
+  → 56/59 is NOT statistically significant evidence of edge above break-even.
